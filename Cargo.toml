@@ -1,0 +1,14 @@
+[package]
+name = "meisaka_assembler"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+log = { version = "0.4.21", features = ["std"] }
+simple_logger = "5.0.0"
+
+thiserror = "1.0.57"
+eyre = "0.6"
+color-eyre = "0.6"
+
+bitflags = "2.6.0"

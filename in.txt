@@ -1,0 +1,51 @@
+mov r1.xw, r0.XW # test
+store r1.xyzw, [r0.x]+
+#comment
+load [r0.xyzw], r3.xy
+swizzle r2.yxwz
+add.w r3, r1
+add_sat.b r2, r6
+sub.b r6, r5
+sub_sat.w r0, r1
+subrev.b r1, r0
+subrev_sat.b r1, r0
+cmpc.w r0, r1
+cmpeq.b r2, r4
+
+lsl.w r4, 5
+asl.b r4, 5 # alias for lsl
+rol.b r4, r0
+asr.w r4, r0
+lsr.w r4, r0
+ror.w r4, 5
+
+# maybe implement mov 1, reg and mov 0, reg as bitop w/ zero and one operations?
+
+and r2, r3
+or r2, r3
+xor r2, r3
+nand r2, r3
+nor r2, r3
+xnor r2, r3
+not r3 # notdst
+# how to express dst = notsrc?
+
+
+
+mov c1.xyzw, r0.xyzw
+mov c3.xyzw, r1.xyzw
+swizzle r7.xxxx # save ip
+rol.w r1, 2
+mov r1.xyzw, r2.xyzw
+and c2, r2
+load [r2.xyzw], r3.xyzw
+store r3.xyzw, [r0.xyzw]+
+mov r0.xyzw, r4.xyzw
+subrev.w r4, c4
+cmpeq.w c1, r4
+add.w c5, r4
+add.w r4, r7 # skip next inst if set
+swizzle r7.yyyy # restore IP
+add.w c4, r0
+add.w c4, r0
+swizzle r7.yyyy
