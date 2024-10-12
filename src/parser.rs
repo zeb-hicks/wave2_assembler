@@ -313,7 +313,7 @@ impl<'a> Parser<'a> {
 
         let increment = self.eat(&TokenKind::Plus);
 
-        Ok(MemoryOperand::new(set.reg(), x_only, increment))
+        Ok(MemoryOperand::new(set.reg(), all, increment))
     }
 
     fn parse_reg(&mut self) -> eyre::Result<RegSelector> {

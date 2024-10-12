@@ -3,9 +3,8 @@ use std::fmt;
 /// the maximum index per type of register
 pub const MAX_REG_IDX: u8 = 7;
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Instruction {
-    System,
     Move {
         src: SetRegSelector,
         dst: SetRegSelector,
@@ -132,9 +131,7 @@ pub enum Instruction {
     UnaryBitNot {
         dst: RegSelector,
     },
-
-    BitOp,
-    SpecOp,
+    // TODO: System, SpecOp
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +165,11 @@ impl RegSelector {
             idx: idx + DATA_IDX_OFFSET,
         }
     }
+
+    /// gets the index of the register for codegen
+    pub fn idx(&self) -> u8 {
+        self.idx
+    }
 }
 
 impl fmt::Debug for RegSelector {
@@ -195,6 +197,18 @@ impl MemoryOperand {
             scatter,
             increment,
         }
+    }
+
+    pub fn reg(&self) -> RegSelector {
+        self.reg
+    }
+
+    pub fn scatter(&self) -> bool {
+        self.scatter
+    }
+
+    pub fn increment(&self) -> bool {
+        self.increment
     }
 }
 
@@ -265,6 +279,11 @@ impl SetSelector {
         set
     }
 
+    /// gets the bits set in the selector
+    pub fn bits(&self) -> u8 {
+        self.0
+    }
+
     pub fn x(&self) -> bool {
         self.0 & 0b0001 != 0
     }
@@ -324,6 +343,10 @@ impl SwizzleSelector {
         self.0 &= !(0b11 << shift);
         self.0 |= (selected & 0b11) << shift;
     }
+
+    pub fn bits(&self) -> u8 {
+        self.0
+    }
 }
 
 impl fmt::Debug for SwizzleSelector {
@@ -355,6 +378,14 @@ pub struct SwizzleRegSelector {
 impl SwizzleRegSelector {
     pub fn new(reg: RegSelector, selector: SwizzleSelector) -> Self {
         Self { reg, selector }
+    }
+
+    pub fn reg(&self) -> RegSelector {
+        self.reg
+    }
+
+    pub fn selector(&self) -> SwizzleSelector {
+        self.selector
     }
 }
 
