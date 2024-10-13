@@ -1,9 +1,8 @@
-use std::fs;
-
+use std::{fs, env};
 use log::*;
-
 use parser::Parser;
 use util::ArrayPrinter;
+use eyre::bail;
 
 mod codegen;
 mod instruction;
@@ -15,18 +14,32 @@ mod util;
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     simple_logger::SimpleLogger::new().init()?;
+    let filename = "in.txt";
+    let source = fs::read_to_string(filename)?;
 
-    let source = fs::read_to_string("in.txt")?;
+    let verbose = env::args().any(|v| v == "-v"); //TODO? CLI
 
     let mut insts = Vec::new();
-    for line in source.lines() {
+    let mut errors = Vec::new();
+    for (line_num, line) in source.lines().enumerate() {
         let mut parser = Parser::new(line);
         loop {
-            let Some(inst) = parser.parse_inst()? else {
-                break;
-            };
-            insts.push(inst);
+            match parser.parse_inst() {
+                Ok(Some(inst)) => insts.push(inst),
+                Ok(None) => break,
+                Err(e) => {
+                    errors.push( match verbose {
+                        false => format!("[{filename}:{line_num}]: {e}"),
+                        true => format!("[{filename}:{line_num}]: {e:?}"),
+                    });
+                    break;
+                }
+            }
         }
+    }
+
+    if !errors.is_empty() {
+        bail!(errors.join("\n"));
     }
 
     debug!("{:#?}", insts);
