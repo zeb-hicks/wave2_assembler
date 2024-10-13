@@ -29,8 +29,8 @@ fn main() -> eyre::Result<()> {
                 Ok(None) => break,
                 Err(e) => {
                     errors.push( match verbose {
-                        false => format!("[{filename}:{line_num}]: {e}"),
-                        true => format!("[{filename}:{line_num}]: {e:?}"),
+                        false => format!("[{filename}:{}]: {e}", line_num + 1),
+                        true => format!("[{filename}:{}]: {e:?}", line_num + 1),
                     });
                     break;
                 }
