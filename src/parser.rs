@@ -320,11 +320,16 @@ impl<'a> Parser<'a> {
         let name = self.expect_ident()?;
         let reg = if name.starts_with('r') {
             let idx = &name[1..];
-            let idx = match idx.parse::<u8>() {
-                Ok(idx) if idx <= MAX_REG_IDX => idx,
-                _ => bail!("invalid register index {}", idx),
-            };
-            RegSelector::new_gpr(idx)
+            // ri is an alias for r7
+            if idx == "i" {
+                RegSelector::new_gpr(7)
+            } else {
+                let idx = match idx.parse::<u8>() {
+                    Ok(idx) if idx <= MAX_REG_IDX => idx,
+                    _ => bail!("invalid register index {}", idx),
+                };
+                RegSelector::new_gpr(idx)
+            }
         } else if name.starts_with('c') {
             let idx = &name[1..];
             let idx = match idx.parse::<u8>() {

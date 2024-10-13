@@ -174,10 +174,11 @@ impl RegSelector {
 
 impl fmt::Debug for RegSelector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.idx < DATA_IDX_OFFSET {
-            write!(f, "c{}", self.idx)
-        } else {
-            write!(f, "r{}", self.idx - DATA_IDX_OFFSET)
+        match self.idx {
+            n @ 0..=7 => write!(f, "c{}", n),
+            n @ 8..=14 => write!(f, "r{}", n - DATA_IDX_OFFSET),
+            15 => write!(f, "ri"),
+            _ => unreachable!(),
         }
     }
 }
