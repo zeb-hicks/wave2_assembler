@@ -35,7 +35,6 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
             let scatter = u8::from(mem.scatter());
             let increment = u8::from(mem.increment());
             let extra = (size << 2) | (scatter << 1) | increment;
-
             vec![op_from_parts(
                 dst.reg().idx(),
                 mem.reg().idx(),
@@ -48,9 +47,12 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
             let scatter = u8::from(mem.scatter());
             let increment = u8::from(mem.increment());
             let extra = (size << 2) | (scatter << 1) | increment;
+            // this uses src as the dest operand and mem as the source operand because
+            // both load and store use the source as an address and dest as a value
+            // https://github.com/Meisaka/MeiVM2/blob/cd687f44a11bc3a0f318dcb1badb23f1f8dce44f/vm.txt#L64-L65
             vec![op_from_parts(
-                mem.reg().idx(),
                 src.reg().idx(),
+                mem.reg().idx(),
                 extra,
                 opcode::STORE,
             )]
