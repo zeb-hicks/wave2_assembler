@@ -1,51 +1,54 @@
-use std::{fs, env};
-use log::*;
-use parser::Parser;
-use util::ArrayPrinter;
+use std::{env, fs};
+
+use color_eyre::owo_colors::OwoColorize;
 use eyre::bail;
+use lexer::Span;
+use log::*;
+
+use diag::{Context, Diagnostic};
+use parser::Parser;
+use source::Source;
+use util::ArrayPrinter;
 
 mod codegen;
+mod diag;
 mod instruction;
 mod lexer;
 mod parser;
 mod reader;
+mod source;
 mod util;
 
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
     simple_logger::SimpleLogger::new().init()?;
-    let filename = "in.txt";
-    let source = fs::read_to_string(filename)?;
 
-    let verbose = env::args().any(|v| v == "-v"); //TODO? CLI
+    let filename = "in.txt";
+
+    let source = Source::new_from_file(filename)?;
+    let mut ctx = Context::new(source);
+
+    // TODO: i dont like having to do this, but otherwise it requires self references
+    // maybe the source shouldn't be in ctx?
+    let src_str = ctx.source().src().to_owned();
+    let mut parser = Parser::new(src_str.as_str());
 
     let mut insts = Vec::new();
-    let mut errors = Vec::new();
-    for (line_num, line) in source.lines().enumerate() {
-        let mut parser = Parser::new(line);
-        loop {
-            match parser.parse_inst() {
-                Ok(Some(inst)) => insts.push(inst),
-                Ok(None) => break,
-                Err(e) => {
-                    errors.push( match verbose {
-                        false => format!("[{filename}:{}]: {e}", line_num + 1),
-                        true => format!("[{filename}:{}]: {e:?}", line_num + 1),
-                    });
-                    break;
-                }
-            }
+    loop {
+        match parser.parse_inst(&mut ctx) {
+            Ok(Some(inst)) => insts.push(inst),
+            Ok(None) | Err(_) => break,
         }
+        ctx.emit_errs();
     }
 
-    if !errors.is_empty() {
-        bail!(errors.join("\n"));
+    if ctx.had_errs() {
+        error!("failed due to previous errors");
+    } else {
+        debug!("{:#?}", insts);
+        let code = codegen::gen(insts.as_slice());
+        info!("{:X}", ArrayPrinter(code.as_slice()));
     }
-
-    debug!("{:#?}", insts);
-
-    let code = codegen::gen(insts.as_slice());
-    info!("{:X}", ArrayPrinter(code.as_slice()));
 
     Ok(())
 }

@@ -1,7 +1,7 @@
 use std::str::Chars;
 
-use eyre::bail;
-
+/// this is its own thing because it turns out to be easier to just collect the
+/// lengths of tokens and then lex tokens from the lengths
 #[derive(Debug)]
 pub struct Reader<'a> {
     chars: Chars<'a>,

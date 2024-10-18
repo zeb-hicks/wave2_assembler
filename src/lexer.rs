@@ -62,6 +62,14 @@ impl Span {
     pub fn new(low: u32, high: u32) -> Self {
         Self { low, high }
     }
+
+    pub fn low(&self) -> u32 {
+        self.low
+    }
+
+    pub fn high(&self) -> u32 {
+        self.high
+    }
 }
 
 #[derive(Debug)]
