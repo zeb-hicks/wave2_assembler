@@ -146,18 +146,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a7a70ba024b9dc04c27ea2f0c0548feb474ec5c54bba33a7f72f873a39d07b24"
 
 [[package]]
-name = "meisaka_assembler"
-version = "0.1.0"
-dependencies = [
- "bitflags",
- "color-eyre",
- "eyre",
- "log",
- "simple_logger",
- "thiserror",
-]
-
-[[package]]
 name = "memchr"
 version = "2.7.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -417,6 +405,18 @@ name = "valuable"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "830b7e5d4d90034032940e4ace0d9a9a057e7a45cd94e6c007832e39edb82f6d"
+
+[[package]]
+name = "wavevm_assembler"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "color-eyre",
+ "eyre",
+ "log",
+ "simple_logger",
+ "thiserror",
+]
 
 [[package]]
 name = "windows-sys"

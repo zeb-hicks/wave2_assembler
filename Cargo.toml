@@ -1,5 +1,5 @@
 [package]
-name = "meisaka_assembler"
+name = "wavevm_assembler"
 version = "0.1.0"
 edition = "2021"
 
