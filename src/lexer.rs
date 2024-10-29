@@ -31,6 +31,7 @@ impl<'a> Lexer<'a> {
             self.pos += next.len();
 
             let kind = match next.kind() {
+                reader::TokenKind::Newline => Newline,
                 reader::TokenKind::Whitespace | reader::TokenKind::Comment => continue,
                 reader::TokenKind::Ident => Ident(self.src[start_pos..self.pos].to_string()),
                 reader::TokenKind::Number => Number(
@@ -95,6 +96,7 @@ impl Token {
 #[derive(Debug, PartialEq, Eq)]
 pub enum TokenKind {
     EoF,
+    Newline,
     Comma,
     Dot,
     LeftBracket,
@@ -108,6 +110,7 @@ impl Display for TokenKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TokenKind::EoF => write!(f, "<EoF>"),
+            TokenKind::Newline => write!(f, "<\\n>"),
             TokenKind::Comma => write!(f, ","),
             TokenKind::Dot => write!(f, "."),
             TokenKind::LeftBracket => write!(f, "["),

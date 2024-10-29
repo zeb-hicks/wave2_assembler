@@ -20,47 +20,64 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_inst(&mut self, ctx: &mut Context) -> Result<Option<Instruction>, ()> {
-        if self.current.kind() == &TokenKind::EoF {
-            return Ok(None);
-        }
-
-        let inst = self.expect_ident().map_err(|d| ctx.add_diag(d))?;
-
-        let inst = match inst.to_lowercase().as_str() {
-            "mov" => self.parse_move(ctx)?,
-            "store" => self.parse_store(ctx)?,
-            "load" => self.parse_load(ctx)?,
-            "swizzle" => self.parse_swizzle(ctx)?,
-            "add" => self.parse_add(ctx, AddMode::Normal)?,
-            "add_sat" => self.parse_add(ctx, AddMode::Saturate)?,
-            "sub" => self.parse_sub(ctx, SubMode::Normal)?,
-            "sub_sat" => self.parse_sub(ctx, SubMode::Saturate)?,
-            "subrev" => self.parse_sub(ctx, SubMode::RevNormal)?,
-            "subrev_sat" => self.parse_sub(ctx, SubMode::RevSaturate)?,
-            "cmpeq" => self.parse_cmp(ctx, CmpMode::Eq)?,
-            "cmpc" => self.parse_cmp(ctx, CmpMode::Carry)?,
-            "cmpc_rev" => self.parse_cmp(ctx, CmpMode::RevCarry)?,
-            "lsl" | "asl" => self.parse_lsl(ctx)?,
-            "rol" => self.parse_rol(ctx)?,
-            "asr" => self.parse_asr(ctx)?,
-            "lsr" => self.parse_lsr(ctx)?,
-            "ror" => self.parse_ror(ctx)?,
-            "and" => self.parse_and(ctx),
-            "or" => self.parse_or(ctx),
-            "xor" => self.parse_xor(ctx),
-            "nand" => self.parse_nand(ctx),
-            "nor" => self.parse_nor(ctx),
-            "xnor" => self.parse_xnor(ctx),
-            "not" => self.parse_unary_not(ctx),
-            _ => {
-                ctx.add_diag(Diagnostic::new(
-                    format!("invalid instruction `{}`", inst),
-                    self.current.span(),
-                ));
-                return Err(());
+        let mut inner = || {
+            // eat all newlines before an instruction to ignore empty lines
+            // whitespace is ignored entirely, so it does not need to be considered
+            while matches!(self.current.kind(), TokenKind::Newline) {
+                self.bump();
             }
+
+            if self.current.kind() == &TokenKind::EoF {
+                return Ok(None);
+            }
+
+            let inst = self.expect_ident().map_err(|d| ctx.add_diag(d))?;
+
+            let inst = match inst.to_lowercase().as_str() {
+                "mov" => self.parse_move(ctx)?,
+                "store" => self.parse_store(ctx)?,
+                "load" => self.parse_load(ctx)?,
+                "swizzle" => self.parse_swizzle(ctx)?,
+                "add" => self.parse_add(ctx, AddMode::Normal)?,
+                "add_sat" => self.parse_add(ctx, AddMode::Saturate)?,
+                "sub" => self.parse_sub(ctx, SubMode::Normal)?,
+                "sub_sat" => self.parse_sub(ctx, SubMode::Saturate)?,
+                "subrev" => self.parse_sub(ctx, SubMode::RevNormal)?,
+                "subrev_sat" => self.parse_sub(ctx, SubMode::RevSaturate)?,
+                "cmpeq" => self.parse_cmp(ctx, CmpMode::Eq)?,
+                "cmpc" => self.parse_cmp(ctx, CmpMode::Carry)?,
+                "cmpc_rev" => self.parse_cmp(ctx, CmpMode::RevCarry)?,
+                "lsl" | "asl" => self.parse_lsl(ctx)?,
+                "rol" => self.parse_rol(ctx)?,
+                "asr" => self.parse_asr(ctx)?,
+                "lsr" => self.parse_lsr(ctx)?,
+                "ror" => self.parse_ror(ctx)?,
+                "and" => self.parse_and(ctx),
+                "or" => self.parse_or(ctx),
+                "xor" => self.parse_xor(ctx),
+                "nand" => self.parse_nand(ctx),
+                "nor" => self.parse_nor(ctx),
+                "xnor" => self.parse_xnor(ctx),
+                "not" => self.parse_unary_not(ctx),
+                _ => {
+                    ctx.add_diag(Diagnostic::new(
+                        format!("invalid instruction `{}`", inst),
+                        self.current.span(),
+                    ));
+                    return Err(());
+                }
+            };
+            Ok(Some(inst))
         };
-        Ok(Some(inst))
+
+        let ret = inner();
+        // eat until newline to prevent cascading errors
+        if ctx.had_errs() {
+            while !matches!(self.current.kind(), TokenKind::Newline | TokenKind::EoF) {
+                self.bump();
+            }
+        }
+        ret
     }
 
     fn parse_move(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
@@ -443,9 +460,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_reg(&mut self) -> Result<RegSelector, Diagnostic> {
-        let name = self
-            .expect_ident()
-            .map_err(|d| Diagnostic::new(String::from("expected register name"), d.span()))?;
+        let name = self.expect_ident().map_err(|d| {
+            Diagnostic::new(
+                format!("expected register name got {}", self.current.kind()),
+                d.span(),
+            )
+        })?;
         let reg = if name.starts_with('r') {
             let idx = &name[1..];
             // ri is an alias for r7

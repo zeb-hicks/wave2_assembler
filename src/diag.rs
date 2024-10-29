@@ -54,8 +54,19 @@ impl Context {
 
         let line = line_idx as u32 + 1; // human lines are 1 indexed
 
+        let col = span
+            .low()
+            .checked_sub(
+                *self
+                    .source
+                    .line_starts()
+                    .get(line_idx)
+                    .expect("line should exist"),
+            )
+            .expect("span low should be >= line start");
+
         // TODO: column number
-        (line, 0)
+        (line, col)
     }
 
     fn get_line_text(&self, line_idx: u32) -> Option<&str> {

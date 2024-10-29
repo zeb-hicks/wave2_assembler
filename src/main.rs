@@ -37,12 +37,17 @@ fn main() -> eyre::Result<()> {
     loop {
         match parser.parse_inst(&mut ctx) {
             Ok(Some(inst)) => insts.push(inst),
-            Ok(None) | Err(_) => break,
+            Ok(None) => {
+                break;
+            }
+            Err(_) => {
+                break;
+            }
         }
-        ctx.emit_errs();
     }
 
     if ctx.had_errs() {
+        ctx.emit_errs();
         error!("failed due to previous errors");
     } else {
         debug!("{:#?}", insts);

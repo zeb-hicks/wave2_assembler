@@ -25,6 +25,7 @@ impl<'a> Reader<'a> {
 
         let kind = match start_c {
             '#' => self.comment(),
+            '\n' => TokenKind::Newline,
             c if c.is_whitespace() => self.eat_whitespace(),
             c if is_ident_start(c) => self.ident(),
 
@@ -51,7 +52,7 @@ impl<'a> Reader<'a> {
     }
 
     fn eat_whitespace(&mut self) -> TokenKind {
-        self.eat_while(|c| c.is_whitespace());
+        self.eat_while(|c| c != '\n' && c.is_whitespace());
         TokenKind::Whitespace
     }
 
@@ -115,6 +116,7 @@ impl Token {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TokenKind {
     EoF,
+    Newline,
     Whitespace,
     Comment,
     Comma,
