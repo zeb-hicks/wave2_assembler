@@ -20,18 +20,38 @@ pub enum Instruction {
         src: SetRegSelector,
         mem: MemoryOperand,
     },
+
+    /// rhs = lhs + rhs
     Add {
-        size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
-    },
-    AddSaturate {
         size: OpSize,
         lhs: RegSelector,
         rhs: RegSelector,
     },
     /// rhs = lhs - rhs
     Sub {
+        size: OpSize,
+        lhs: RegSelector,
+        rhs: RegSelector,
+    },
+    /// rhs = rhs - lhs
+    SubRev {
+        size: OpSize,
+        lhs: RegSelector,
+        rhs: RegSelector,
+    },
+    CmpEq {
+        size: OpSize,
+        lhs: RegSelector,
+        rhs: RegSelector,
+    },
+    CmpNeq {
+        size: OpSize,
+        lhs: RegSelector,
+        rhs: RegSelector,
+    },
+
+    /// rhs = lhs + rhs
+    AddSaturate {
         size: OpSize,
         lhs: RegSelector,
         rhs: RegSelector,
@@ -43,29 +63,7 @@ pub enum Instruction {
         rhs: RegSelector,
     },
     /// rhs = rhs - lhs
-    SubRev {
-        size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
-    },
-    /// rhs = rhs - lhs
     SubRevSaturate {
-        size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
-    },
-
-    CmpEq {
-        size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
-    },
-    CmpCarry {
-        size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
-    },
-    CmpCarryRev {
         size: OpSize,
         lhs: RegSelector,
         rhs: RegSelector,

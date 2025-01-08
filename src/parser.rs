@@ -45,8 +45,7 @@ impl<'a> Parser<'a> {
                 "subrev" => self.parse_sub(ctx, SubMode::RevNormal)?,
                 "subrev_sat" => self.parse_sub(ctx, SubMode::RevSaturate)?,
                 "cmpeq" => self.parse_cmp(ctx, CmpMode::Eq)?,
-                "cmpc" => self.parse_cmp(ctx, CmpMode::Carry)?,
-                "cmpc_rev" => self.parse_cmp(ctx, CmpMode::RevCarry)?,
+                "cmpneq" => self.parse_cmp(ctx, CmpMode::Neq)?,
                 "lsl" | "asl" => self.parse_lsl(ctx)?,
                 "rol" => self.parse_rol(ctx)?,
                 "asr" => self.parse_asr(ctx)?,
@@ -150,8 +149,6 @@ impl<'a> Parser<'a> {
         let inst = match mode {
             AddMode::Normal => Instruction::Add { size, lhs, rhs },
             AddMode::Saturate => Instruction::AddSaturate { size, lhs, rhs },
-            AddMode::CheckCarry => todo!("add check carry"),
-            AddMode::CheckSign => todo!("add check sign"),
         };
         Ok(inst)
     }
@@ -180,13 +177,7 @@ impl<'a> Parser<'a> {
         let (size, lhs, rhs) = self.parse_math_common(ctx)?;
         let inst = match mode {
             CmpMode::Eq => Instruction::CmpEq { size, lhs, rhs },
-            CmpMode::Carry => Instruction::CmpCarry { size, lhs, rhs },
-            // reverse parses cmpc_rev.w rhs, lhs
-            CmpMode::RevCarry => Instruction::CmpCarryRev {
-                size,
-                lhs: rhs,
-                rhs: lhs,
-            },
+            CmpMode::Neq => Instruction::CmpNeq { size, lhs, rhs },
         };
         Ok(inst)
     }
@@ -699,8 +690,6 @@ impl<'a> Parser<'a> {
 enum AddMode {
     Normal,
     Saturate,
-    CheckCarry,
-    CheckSign,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -714,6 +703,5 @@ enum SubMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CmpMode {
     Eq,
-    Carry,
-    RevCarry,
+    Neq,
 }

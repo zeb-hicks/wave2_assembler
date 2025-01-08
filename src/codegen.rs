@@ -65,8 +65,7 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
         SubRev { size, lhs, rhs } => vec![math_op(math_ops::SUBREV, size, lhs, rhs)],
         SubRevSaturate { size, lhs, rhs } => vec![math_op(math_ops::SUBREV_SAT, size, lhs, rhs)],
         CmpEq { size, lhs, rhs } => vec![math_op(math_ops::CMPEQ, size, lhs, rhs)],
-        CmpCarry { size, lhs, rhs } => vec![math_op(math_ops::CMPC, size, lhs, rhs)],
-        CmpCarryRev { size, lhs, rhs } => vec![math_op(math_ops::CMPCREV, size, lhs, rhs)],
+        CmpNeq { size, lhs, rhs } => vec![math_op(math_ops::CMPNEQ, size, lhs, rhs)],
 
         ShiftLeft { size, dst, amount } => vec![shift_op(shift_ops::LEFT_SHIFT, size, dst, amount)],
         ShiftRightLogical { size, dst, amount } => {
@@ -178,15 +177,15 @@ mod opcode {
 }
 
 mod math_ops {
-    pub(super) const ADD: u8 = 0b0000;
-    pub(super) const ADD_SAT: u8 = 0b0001;
-    pub(super) const SUB: u8 = 0b0100;
-    pub(super) const SUB_SAT: u8 = 0b0101;
-    pub(super) const CMPC: u8 = 0b0110;
-    pub(super) const CMPEQ: u8 = 0b0111;
-    pub(super) const SUBREV: u8 = 0b1000;
-    pub(super) const SUBREV_SAT: u8 = 0b1001;
-    pub(super) const CMPCREV: u8 = 0b1010;
+    pub(super) const ADD: u8 = 0x0;
+    pub(super) const SUB: u8 = 0x1;
+    pub(super) const SUBREV: u8 = 0x2;
+    pub(super) const CMPEQ: u8 = 0x3;
+
+    pub(super) const CMPNEQ: u8 = 0x7;
+    pub(super) const ADD_SAT: u8 = 0x8;
+    pub(super) const SUB_SAT: u8 = 0x9;
+    pub(super) const SUBREV_SAT: u8 = 0xA;
 }
 
 mod shift_ops {

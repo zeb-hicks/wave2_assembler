@@ -9,8 +9,9 @@ sub.b r6, r5
 sub_sat.w r0, r1
 subrev.b r1, r0
 subrev_sat.b r1, r0
-cmpc.w r0, r1
+# cmpc.w r0, r1 TODO: re-implement the carry-like things
 cmpeq.b r2, r4
+cmpneq.w r2, r4
 
 lsl.w r4, 5
 asl.b r4, 5 # alias for lsl
