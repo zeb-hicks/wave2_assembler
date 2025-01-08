@@ -1,3 +1,4 @@
+use crate::lexer::Span;
 use crate::{
     diag::{Context, Diagnostic},
     instruction::{
@@ -42,8 +43,6 @@ impl<'a> Parser<'a> {
                 "add_sat" => self.parse_add(ctx, AddMode::Saturate)?,
                 "sub" => self.parse_sub(ctx, SubMode::Normal)?,
                 "sub_sat" => self.parse_sub(ctx, SubMode::Saturate)?,
-                "subrev" => self.parse_sub(ctx, SubMode::RevNormal)?,
-                "subrev_sat" => self.parse_sub(ctx, SubMode::RevSaturate)?,
                 "cmpeq" => self.parse_cmp(ctx, CmpMode::Eq)?,
                 "cmpneq" => self.parse_cmp(ctx, CmpMode::Neq)?,
                 "lsl" | "asl" => self.parse_lsl(ctx)?,
@@ -145,40 +144,131 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_add(&mut self, ctx: &mut Context, mode: AddMode) -> Result<Instruction, ()> {
-        let (size, lhs, rhs) = self.parse_math_common(ctx)?;
-        let inst = match mode {
-            AddMode::Normal => Instruction::Add { size, lhs, rhs },
-            AddMode::Saturate => Instruction::AddSaturate { size, lhs, rhs },
+        let span_start = self.current.span();
+        let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
+
+        // select the correct src based on which other register
+        // was not the dst
+        //
+        // we can do this because the order does not matter, since + is commutative
+        // so there's no need to select a "reversed" instruction kind
+        let src = if dst == lhs {
+            // dst = lhs + rhs
+            // dst = dst + src
+            rhs
+        } else if dst == rhs {
+            // dst = lhs + rhs
+            // dst = src + dst
+            lhs
+        } else {
+            // add could not be encoded in only two registers, error
+            ctx.add_diag(Diagnostic::new(
+                String::from("add must be of the form `dst = dst + src` or `dst = src + dst`"),
+                Span::between(span_start, self.current.span()),
+            ));
+
+            // pick lhs to be the src arbitrarily
+            // to create a dummy instruction for further parsing
+            lhs
         };
+
+        let inst = match mode {
+            AddMode::Normal => Instruction::Add { size, src, dst },
+            AddMode::Saturate => Instruction::AddSaturate { size, src, dst },
+        };
+
         Ok(inst)
     }
 
     fn parse_sub(&mut self, ctx: &mut Context, mode: SubMode) -> Result<Instruction, ()> {
-        let (size, lhs, rhs) = self.parse_math_common(ctx)?;
-        let inst = match mode {
-            SubMode::Normal => Instruction::Sub { size, lhs, rhs },
-            SubMode::Saturate => Instruction::SubSaturate { size, lhs, rhs },
-            // reverse the lhs and rhs: subrev.w rhs, lhs
-            SubMode::RevNormal => Instruction::SubRev {
+        let span_start = self.current.span();
+        let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
+
+        let inst = if dst == lhs {
+            // dst = lhs - rhs
+            // dst = dst - rhs
+            match mode {
+                SubMode::Normal => Instruction::SubRev {
+                    size,
+                    src: rhs,
+                    dst,
+                },
+                SubMode::Saturate => Instruction::SubRevSaturate {
+                    size,
+                    src: rhs,
+                    dst,
+                },
+            }
+        } else if dst == rhs {
+            // dst = lhs - rhs
+            // dst = lhs - dst
+            match mode {
+                SubMode::Normal => Instruction::Sub {
+                    size,
+                    src: lhs,
+                    dst,
+                },
+                SubMode::Saturate => Instruction::SubSaturate {
+                    size,
+                    src: lhs,
+                    dst,
+                },
+            }
+        } else {
+            // sub could not be encoded in only two registers, error
+            ctx.add_diag(Diagnostic::new(
+                String::from("sub must be of the form `dst = dst - src` or `dst = src - dst`"),
+                Span::between(span_start, self.current.span()),
+            ));
+
+            // generate a dummy sub instruction to allow for further parsing
+            Instruction::Sub {
                 size,
-                lhs: rhs,
-                rhs: lhs,
-            },
-            SubMode::RevSaturate => Instruction::SubRevSaturate {
-                size,
-                lhs: rhs,
-                rhs: lhs,
-            },
+                src: lhs,
+                dst: rhs,
+            }
         };
+
         Ok(inst)
     }
 
     fn parse_cmp(&mut self, ctx: &mut Context, mode: CmpMode) -> Result<Instruction, ()> {
-        let (size, lhs, rhs) = self.parse_math_common(ctx)?;
-        let inst = match mode {
-            CmpMode::Eq => Instruction::CmpEq { size, lhs, rhs },
-            CmpMode::Neq => Instruction::CmpNeq { size, lhs, rhs },
+        let span_start = self.current.span();
+        let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
+
+        let inst = if dst == lhs {
+            // dst = lhs cmp rhs
+            // dst = dst cmp src
+            let src = rhs;
+
+            match mode {
+                CmpMode::Eq => Instruction::CmpEq { size, src, dst },
+                CmpMode::Neq => Instruction::CmpNeq { size, src, dst },
+            }
+        } else if dst == rhs {
+            // dst = lhs cmp rhs
+            // dst = src cmp dst
+            let src = lhs;
+
+            match mode {
+                CmpMode::Eq => Instruction::CmpEq { size, src, dst },
+                CmpMode::Neq => Instruction::CmpNeq { size, src, dst },
+            }
+        } else {
+            // cmp could not be encoded in only two registers, error
+            ctx.add_diag(Diagnostic::new(
+                String::from("compare instructions must be of the form `dst = dst <cmp> src` or `dst = src <cmp> dst`"),
+                Span::between(span_start, self.current.span()),
+            ));
+
+            // generate a dummy instruction to allow for further parsing
+            Instruction::CmpEq {
+                size,
+                src: lhs,
+                dst: rhs,
+            }
         };
+
         Ok(inst)
     }
 
@@ -254,7 +344,7 @@ impl<'a> Parser<'a> {
     fn parse_math_common(
         &mut self,
         ctx: &mut Context,
-    ) -> Result<(OpSize, RegSelector, RegSelector), ()> {
+    ) -> Result<(OpSize, RegSelector, RegSelector, RegSelector), ()> {
         self.bump();
 
         if !self.eat(&TokenKind::Dot) {
@@ -283,12 +373,24 @@ impl<'a> Parser<'a> {
         };
         self.bump();
 
+        let dst = self.parse_reg().unwrap_or_else(|d| {
+            ctx.add_diag(d);
+            // use a dummy selector to allow recovery
+            RegSelector::new_gpr(0)
+        });
+        if !self.eat(&TokenKind::Comma) {
+            ctx.add_diag(Diagnostic::new(
+                String::from("missing comma between dst and lhs"),
+                self.current.span(),
+            ));
+            // allow recovery by not returning
+        }
+
         let lhs = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0)
         });
-
         if !self.eat(&TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between lhs and rhs"),
@@ -302,7 +404,7 @@ impl<'a> Parser<'a> {
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0)
         });
-        Ok((size, lhs, rhs))
+        Ok((size, dst, lhs, rhs))
     }
 
     fn parse_shift_common(
@@ -696,8 +798,6 @@ enum AddMode {
 enum SubMode {
     Normal,
     Saturate,
-    RevNormal,
-    RevSaturate,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

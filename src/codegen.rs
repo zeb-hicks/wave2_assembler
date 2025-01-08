@@ -58,14 +58,14 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
             )]
         }
 
-        Add { size, lhs, rhs } => vec![math_op(math_ops::ADD, size, lhs, rhs)],
-        AddSaturate { size, lhs, rhs } => vec![math_op(math_ops::ADD_SAT, size, lhs, rhs)],
-        Sub { size, lhs, rhs } => vec![math_op(math_ops::SUB, size, lhs, rhs)],
-        SubSaturate { size, lhs, rhs } => vec![math_op(math_ops::SUB_SAT, size, lhs, rhs)],
-        SubRev { size, lhs, rhs } => vec![math_op(math_ops::SUBREV, size, lhs, rhs)],
-        SubRevSaturate { size, lhs, rhs } => vec![math_op(math_ops::SUBREV_SAT, size, lhs, rhs)],
-        CmpEq { size, lhs, rhs } => vec![math_op(math_ops::CMPEQ, size, lhs, rhs)],
-        CmpNeq { size, lhs, rhs } => vec![math_op(math_ops::CMPNEQ, size, lhs, rhs)],
+        Add { size, src, dst } => vec![math_op(math_ops::ADD, size, src, dst)],
+        AddSaturate { size, src, dst } => vec![math_op(math_ops::ADD_SAT, size, src, dst)],
+        Sub { size, src, dst } => vec![math_op(math_ops::SUB, size, src, dst)],
+        SubSaturate { size, src, dst } => vec![math_op(math_ops::SUB_SAT, size, src, dst)],
+        SubRev { size, src, dst } => vec![math_op(math_ops::SUBREV, size, src, dst)],
+        SubRevSaturate { size, src, dst } => vec![math_op(math_ops::SUBREV_SAT, size, src, dst)],
+        CmpEq { size, src, dst } => vec![math_op(math_ops::CMPEQ, size, src, dst)],
+        CmpNeq { size, src, dst } => vec![math_op(math_ops::CMPNEQ, size, src, dst)],
 
         ShiftLeft { size, dst, amount } => vec![shift_op(shift_ops::LEFT_SHIFT, size, dst, amount)],
         ShiftRightLogical { size, dst, amount } => {
@@ -130,12 +130,12 @@ fn op_from_parts(dst: u8, src: u8, extra: u8, op: u8) -> u16 {
     (u16::from(dst) << 12) | (u16::from(src) << 8) | (u16::from(extra) << 4) | u16::from(op)
 }
 
-fn math_op(op: u8, size: OpSize, lhs: RegSelector, rhs: RegSelector) -> u16 {
+fn math_op(op: u8, size: OpSize, src: RegSelector, dst: RegSelector) -> u16 {
     let size = match size {
         OpSize::Byte => opcode::MATH8,
         OpSize::Word => opcode::MATH16,
     };
-    op_from_parts(rhs.idx(), lhs.idx(), op, size)
+    op_from_parts(dst.idx(), src.idx(), op, size)
 }
 
 fn shift_op(op: u8, size: OpSize, dst: RegSelector, amount: ShiftAmount) -> u16 {

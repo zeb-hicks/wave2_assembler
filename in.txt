@@ -1,3 +1,37 @@
+# === sub ===
+sub.b r0, r0, r1        # r0 = r0 - r1
+sub.b r2, r3, r2        # r2 = r3 - r2
+#sub.b r6, r5, r4        # invalid
+
+# === sub_sat ===
+sub_sat.b r0, r0, r1    # r0 = r0 - r1
+sub_sat.b r2, r3, r2    # r2 = r3 - r2
+#sub_sat.b r6, r5, r4    # invalid
+
+# === add ===
+add.b r0, r0, r1        # r0 = r0 + r1
+add.b r0, r1, r0        # r0 = r1 + r0
+#add.b r4, r5, r6        # invalid
+
+# === add_sat ===
+add_sat.b r0, r0, r1    # r0 = r0 + r1
+add_sat.b r0, r1, r0    # r0 = r1 + r0
+#add_sat.b r4, r5, r6    # invalid
+
+# === cmp === #
+## == eq == ##
+cmpeq.b r0, r0, r1      # r0 = r0 == r1
+cmpeq.b r0, r1, r0      # r0 = r1 == r1
+#cmpeq.b r4, r5, r6      # invalid
+
+## == ne == ##
+cmpneq.b r0, r0, r1      # r0 = r0 != r1
+cmpneq.b r0, r1, r0      # r0 = r1 != r0
+#cmpneq.b r4, r5, r6      # invalid
+
+UNKNOWN
+
+
 mov r1.xw, r0.XW # test
 store r1.xyzw, [r0.x]+
 #comment

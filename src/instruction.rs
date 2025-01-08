@@ -21,52 +21,54 @@ pub enum Instruction {
         mem: MemoryOperand,
     },
 
-    /// rhs = lhs + rhs
+    /// dst = src + dst
     Add {
         size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
+        src: RegSelector,
+        dst: RegSelector,
     },
-    /// rhs = lhs - rhs
+    /// dst = src - dst
     Sub {
         size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
+        src: RegSelector,
+        dst: RegSelector,
     },
-    /// rhs = rhs - lhs
+    /// dst = dst - src
     SubRev {
         size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
+        src: RegSelector,
+        dst: RegSelector,
     },
+    /// dst = src == dst
     CmpEq {
         size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
+        src: RegSelector,
+        dst: RegSelector,
     },
+    /// dst = src != dst
     CmpNeq {
         size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
+        src: RegSelector,
+        dst: RegSelector,
     },
 
-    /// rhs = lhs + rhs
+    /// dst = src + dst
     AddSaturate {
         size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
+        src: RegSelector,
+        dst: RegSelector,
     },
-    /// rhs = lhs - rhs
+    /// dst = src - dst
     SubSaturate {
         size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
+        src: RegSelector,
+        dst: RegSelector,
     },
-    /// rhs = rhs - lhs
+    /// dst = dst - src
     SubRevSaturate {
         size: OpSize,
-        lhs: RegSelector,
-        rhs: RegSelector,
+        src: RegSelector,
+        dst: RegSelector,
     },
 
     // =================

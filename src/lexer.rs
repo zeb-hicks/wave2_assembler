@@ -71,6 +71,14 @@ impl Span {
     pub fn high(&self) -> u32 {
         self.high
     }
+
+    pub fn between(low: Span, high: Span) -> Self {
+        assert!(low.low < high.high);
+        Self {
+            low: low.low,
+            high: high.high,
+        }
+    }
 }
 
 #[derive(Debug)]
