@@ -33,20 +33,52 @@ not r3 # notdst
 
 
 
-mov c1.xyzw, r0.xyzw
-mov c3.xyzw, r1.xyzw
-swizzle r7.xxxx # save ip
-rol.w r1, 2
-mov r1.xyzw, r2.xyzw
-and c2, r2
-load [r2.xyzw], r3.xyzw
-store r3.xyzw, [r0.xyzw]+
-mov r0.xyzw, r4.xyzw
-subrev.w r4, c4
-cmpeq.w c1, r4
-add.w c5, r4
-add.w r4, r7 # skip next inst if set
-swizzle r7.yyyy # restore IP
-add.w c4, r0
-add.w c4, r0
-swizzle r7.yyyy
+# test program courtesy of nichepenguin: https://pub.colonq.computer/~nichepenguin/community/community.html#meivm-details
+#      x    y    z    w
+#c0 0000 A7F4 5ECB 0600 - colormap
+#c1 0838 0840 08b8 08c0 - starting address (0800 0808 0880 0888 left)
+#c2 0003 0003 0003 0003 - colormap mask (0b11)
+#c3 0100 0100 0100 0100 - line address increment (256, two lines of 128x64)
+#c4 0001 0000 0000 0000 - 1 | 0 | 0 | 0 (line increment)
+#c5 0041 0000 0000 0000 - image data start
+#c6 0064 0000 0000 0000 - program start 
+
+# === header code ===
+
+#mov c6.x, r7.x
+
+# === main code ===
+# == main loop start ==
+swizzle r7.xyzx           # :W restart
+mov c1.xyzw, r2.xyzw      # r2 - current draw line addr
+mov c5.xyzw, r3.xyzw      # r3 - current image data addr
+lsr.w r4, 15              # r4 - clear line counter 
+# == line loop start ==
+swizzle r7.xyxw           # :Z lines
+load [r3.x]+, r0.xyzw     # r0 - image data addres, increment for the next iteration
+mov r2.xyzw, r1.xyzw      # r1 - current pixel target address
+# == pixel loop start ==
+swizzle r7.xxzw           # :Y pixels
+mov r0.xyzw, r5.xyzw      # r5 - pixel data
+and c2, r5                # apply mask - get color indexes
+load [r5.xyzw], r6.xyzw   # r6 - color data [freeing r5]
+store r6.xyzw, [r1.xyzw]+    # draw and increment pixel target address [freeing r6]
+rol.w r0, 2               # roll image data to the next pixel
+# linebreak test
+mov r1.xyzw, r6.xyzw      # r6 - test result
+subrev.w r6, r2           # subtract line start address from current pixel address
+lsr.w r6, 3               # right-shift counter (1000 -> 0001, other -> 0000)
+mov c4.yzw, r6.yzw        # zero-out yzw of a jump increment
+add.w r6, r7              # jump over if test is true [freeing r6]
+swizzle r7.yyzw           # jump to :Y => next pixel
+# == pixel loop end ==
+add.w c3, r2              # increment line addr 
+add.w c4, r4              # increment line counter
+# restart test
+mov r4.xyzw, r6.xyzw      # r6 - test result
+lsr.w r6, 3               # right-shift counter to get the jump (1000 -> 0001, other -> 0000)
+add.w r6, r7              # jump over if test is true [freeing r6]
+swizzle r7.zyzw           # jump to :Z => next line
+# == line loop end ==
+swizzle r7.wyzw           # jump to :W => restart
+# == main loop end
