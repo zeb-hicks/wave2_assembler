@@ -29,20 +29,15 @@ cmpneq.b r0, r0, r1      # r0 = r0 != r1
 cmpneq.b r0, r1, r0      # r0 = r1 != r0
 #cmpneq.b r4, r5, r6      # invalid
 
-UNKNOWN
+# UNKNOWN
 
-
-mov r1.xw, r0.XW # test
-store r1.xyzw, [r0.x]+
-#comment
-load [r0.xyzw], r3.xy
+mov [r0.x]+, r1.xyzw # register to memory move
+mov r3.xy, [r0.xyzw] # memory to register move
 swizzle r2.yxwz
 add.w r3, r1
 add_sat.b r2, r6
 sub.b r6, r5
 sub_sat.w r0, r1
-subrev.b r1, r0
-subrev_sat.b r1, r0
 # cmpc.w r0, r1 TODO: re-implement the carry-like things
 cmpeq.b r2, r4
 cmpneq.w r2, r4
@@ -79,37 +74,37 @@ not r3 # notdst
 
 # === header code ===
 
-#mov c6.x, r7.x
+#mov r7.x, c6.x
 
 # === main code ===
 # == main loop start ==
 swizzle r7.xyzx           # :W restart
-mov c1.xyzw, r2.xyzw      # r2 - current draw line addr
-mov c5.xyzw, r3.xyzw      # r3 - current image data addr
+mov r2.xyzw, c1.xyzw      # r2 - current draw line addr
+mov r3.xyzw, c5.xyzw      # r3 - current image data addr
 lsr.w r4, 15              # r4 - clear line counter 
 # == line loop start ==
 swizzle r7.xyxw           # :Z lines
-load [r3.x]+, r0.xyzw     # r0 - image data addres, increment for the next iteration
-mov r2.xyzw, r1.xyzw      # r1 - current pixel target address
+mov r0.xyzw, [r3.x]+      # r0 - image data addres, increment for the next iteration
+mov r1.xyzw, r2.xyzw      # r1 - current pixel target address
 # == pixel loop start ==
 swizzle r7.xxzw           # :Y pixels
-mov r0.xyzw, r5.xyzw      # r5 - pixel data
+mov r5.xyzw, r0.xyzw      # r5 - pixel data
 and c2, r5                # apply mask - get color indexes
-load [r5.xyzw], r6.xyzw   # r6 - color data [freeing r5]
-store r6.xyzw, [r1.xyzw]+    # draw and increment pixel target address [freeing r6]
+mov r6.xyzw, [r5.xyzw]    # r6 - color data [freeing r5]
+mov [r1.xyzw]+, r6.xyzw   # draw and increment pixel target address [freeing r6]
 rol.w r0, 2               # roll image data to the next pixel
 # linebreak test
-mov r1.xyzw, r6.xyzw      # r6 - test result
+mov r6.xyzw, r1.xyzw      # r6 - test result
 subrev.w r6, r2           # subtract line start address from current pixel address
 lsr.w r6, 3               # right-shift counter (1000 -> 0001, other -> 0000)
-mov c4.yzw, r6.yzw        # zero-out yzw of a jump increment
+mov r6.yzw, c4.yzw        # zero-out yzw of a jump increment
 add.w r6, r7              # jump over if test is true [freeing r6]
 swizzle r7.yyzw           # jump to :Y => next pixel
 # == pixel loop end ==
 add.w c3, r2              # increment line addr 
 add.w c4, r4              # increment line counter
 # restart test
-mov r4.xyzw, r6.xyzw      # r6 - test result
+mov r6.xyzw, r4.xyzw      # r6 - test result
 lsr.w r6, 3               # right-shift counter to get the jump (1000 -> 0001, other -> 0000)
 add.w r6, r7              # jump over if test is true [freeing r6]
 swizzle r7.zyzw           # jump to :Z => next line

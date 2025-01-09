@@ -36,8 +36,6 @@ impl<'a> Parser<'a> {
 
             let inst = match inst.to_lowercase().as_str() {
                 "mov" => self.parse_move(ctx)?,
-                "store" => self.parse_store(ctx)?,
-                "load" => self.parse_load(ctx)?,
                 "swizzle" => self.parse_swizzle(ctx)?,
                 "add" => self.parse_add(ctx, AddMode::Normal)?,
                 "add_sat" => self.parse_add(ctx, AddMode::Saturate)?,
@@ -80,7 +78,8 @@ impl<'a> Parser<'a> {
 
     fn parse_move(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
         self.bump();
-        let src = self.parse_set_reg(ctx, false)?;
+
+        let src = self.parse_move_operand(ctx)?;
 
         if !self.eat(&TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
@@ -90,50 +89,35 @@ impl<'a> Parser<'a> {
             // allow recovery by not returning
         }
 
-        let dst = self.parse_set_reg(ctx, false)?;
+        let dst = self.parse_move_operand(ctx)?;
 
-        if dst.selector() != src.selector() {
-            // this is not critical to fail on, it's mostly for clarity in writing
-            ctx.add_diag(Diagnostic::new(
-                String::from("lhs and rhs of move must select the same elements"),
-                self.current.span(),
-            ));
+        match (src, dst) {
+            (LoadStoreOp::RegOp(src), LoadStoreOp::RegOp(dst)) => {
+                // for register-to-register moves, the selected source elements must be the same
+                // as the selected destination elements.
+                // while it could be reasonable to allow the source to only be a *subset* of the
+                // destination (as in `move r0.xyzw, r1.xyz`), exact equality expresses the
+                // same thing but with less room for error.
+                if dst.selector() != src.selector() {
+                    // this is not critical to fail on, it's mostly for clarity in writing
+                    ctx.add_diag(Diagnostic::new(
+                        String::from("lhs and rhs of move must select the same elements"),
+                        self.current.span(),
+                    ));
+                }
+
+                Ok(Instruction::Move { src, dst })
+            }
+            (LoadStoreOp::MemOp(mem), LoadStoreOp::RegOp(dst)) => {
+                Ok(Instruction::Load { mem, dst })
+            }
+            (LoadStoreOp::RegOp(src), LoadStoreOp::MemOp(mem)) => {
+                Ok(Instruction::Store { src, mem })
+            }
+
+            // mem-to-mem moves do not exist
+            (LoadStoreOp::MemOp(_), LoadStoreOp::MemOp(_)) => todo!(),
         }
-
-        Ok(Instruction::Move { dst, src })
-    }
-
-    fn parse_store(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
-        self.bump();
-        let src = self.parse_set_reg(ctx, true)?;
-
-        if !self.eat(&TokenKind::Comma) {
-            ctx.add_diag(Diagnostic::new(
-                String::from("missing comma between lhs and rhs"),
-                self.current.span(),
-            ));
-            // allow recovery by not returning
-        }
-
-        let mem = self.parse_mem_operand(ctx)?;
-
-        Ok(Instruction::Store { src, mem })
-    }
-
-    fn parse_load(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
-        self.bump();
-
-        let mem = self.parse_mem_operand(ctx)?;
-        if !self.eat(&TokenKind::Comma) {
-            ctx.add_diag(Diagnostic::new(
-                String::from("missing comma between lhs and rhs"),
-                self.current.span(),
-            ));
-            // allow recovery by not returning
-        }
-        let dst = self.parse_set_reg(ctx, true)?;
-
-        Ok(Instruction::Load { mem, dst })
     }
 
     fn parse_swizzle(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
@@ -511,45 +495,42 @@ impl<'a> Parser<'a> {
         (lhs, rhs)
     }
 
-    fn parse_mem_operand(&mut self, ctx: &mut Context) -> Result<MemoryOperand, ()> {
-        // used for recovery logic
-        let mut missing_bracket = false;
+    fn parse_move_operand(&mut self, ctx: &mut Context) -> Result<LoadStoreOp, ()> {
+        let is_mem = self.eat(&TokenKind::LeftBracket);
 
-        if !self.eat(&TokenKind::LeftBracket) {
-            ctx.add_diag(Diagnostic::new(
-                String::from("missing `[` before memory operand"),
-                self.current.span(),
-            ));
-            // it's probably just missing, recover
-            missing_bracket = true;
-        }
-
-        // exit early if there were errors parsing the memory operand register
+        // we can exit early here and the higher levels will eat until
+        // end of line to prevent cascading errors
         let set = self.parse_set_reg(ctx, true)?;
 
-        let selector = set.selector();
-        let x_only = selector.x() && !selector.y() && !selector.z() && !selector.w();
-        let all = selector.x() && selector.y() && selector.z() && selector.w();
-        if !(x_only || all) {
-            ctx.add_diag(Diagnostic::new(
-                String::from("memory operands must use either reg.x or reg.xyzw"),
-                self.current.span(),
-            ));
-            // recover with the invalid selector
+        if is_mem {
+            let selector = set.selector();
+            let x_only = selector.x() && !selector.y() && !selector.z() && !selector.w();
+            let all = selector.x() && selector.y() && selector.z() && selector.w();
+            if !(x_only || all) {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("memory operands must use either reg.x or reg.xyzw"),
+                    self.current.span(),
+                ));
+                // recover with the invalid selector
+            }
+
+            if is_mem && !self.eat(&TokenKind::RightBracket) {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("missing `]` after memory operand"),
+                    self.current.span(),
+                ));
+                // it's probably just missing, recover
+            }
+
+            let increment = self.eat(&TokenKind::Plus);
+            Ok(LoadStoreOp::MemOp(MemoryOperand::new(
+                set.reg(),
+                all,
+                increment,
+            )))
+        } else {
+            Ok(LoadStoreOp::RegOp(set))
         }
-
-        // don't emit this second error if we already emitted an error for the start bracket
-        if !missing_bracket && !self.eat(&TokenKind::RightBracket) {
-            ctx.add_diag(Diagnostic::new(
-                String::from("missing `]` before memory operand"),
-                self.current.span(),
-            ));
-            // it's probably just missing, recover
-        }
-
-        let increment = self.eat(&TokenKind::Plus);
-
-        Ok(MemoryOperand::new(set.reg(), all, increment))
     }
 
     fn parse_reg(&mut self) -> Result<RegSelector, Diagnostic> {
@@ -804,4 +785,20 @@ enum SubMode {
 enum CmpMode {
     Eq,
     Neq,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum LoadStoreOp {
+    MemOp(MemoryOperand),
+    RegOp(SetRegSelector),
+}
+
+impl LoadStoreOp {
+    fn is_reg(&self) -> bool {
+        matches!(self, Self::RegOp(_))
+    }
+
+    fn is_mem(&self) -> bool {
+        matches!(self, Self::MemOp(_))
+    }
 }
