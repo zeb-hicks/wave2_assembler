@@ -274,10 +274,15 @@ impl SetSelector {
     /// sets the specified element in the selector, returning whether
     /// that element was already set
     pub fn set(&mut self, idx: u8) -> bool {
-        let idx = idx & 0b11;
+        assert!(idx < 4);
         let set = self.0 & (1 << idx) != 0;
         self.0 |= 1 << idx;
         set
+    }
+
+    pub fn get(&mut self, idx: u8) -> bool {
+        assert!(idx < 4);
+        self.0 & (1 << idx) != 0
     }
 
     /// gets the bits set in the selector

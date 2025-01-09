@@ -29,18 +29,15 @@ cmpneq.b r0, r0, r1      # r0 = r0 != r1
 cmpneq.b r0, r1, r0      # r0 = r1 != r0
 #cmpneq.b r4, r5, r6      # invalid
 
-# UNKNOWN
+###### TODO: re-implement the carry-like compares and adds
 
-mov [r0.x]+, r1.xyzw # register to memory move
-mov r3.xy, [r0.xyzw] # memory to register move
+## == mov == ##
+mov r0.xyzw, r1.xyzw     # register to register move
+mov r0.xy, r1.xy         # register to register move (masked)
+mov [r0.x]+, r1.xyzw     # register to memory move
+mov r3.xy, [r0.xyzw]     # memory to register move
+
 swizzle r2.yxwz
-add.w r3, r1
-add_sat.b r2, r6
-sub.b r6, r5
-sub_sat.w r0, r1
-# cmpc.w r0, r1 TODO: re-implement the carry-like things
-cmpeq.b r2, r4
-cmpneq.w r2, r4
 
 lsl.w r4, 5
 asl.b r4, 5 # alias for lsl
@@ -95,7 +92,7 @@ mov [r1.xyzw]+, r6.xyzw   # draw and increment pixel target address [freeing r6]
 rol.w r0, 2               # roll image data to the next pixel
 # linebreak test
 mov r6.xyzw, r1.xyzw      # r6 - test result
-subrev.w r6, r2           # subtract line start address from current pixel address
+sub.w r6, r6, r2          # subtract line start address from current pixel address
 lsr.w r6, 3               # right-shift counter (1000 -> 0001, other -> 0000)
 mov r6.yzw, c4.yzw        # zero-out yzw of a jump increment
 add.w r6, r7              # jump over if test is true [freeing r6]

@@ -1,3 +1,5 @@
+use log::{debug, warn};
+
 use crate::lexer::Span;
 use crate::{
     diag::{Context, Diagnostic},
@@ -21,17 +23,18 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_inst(&mut self, ctx: &mut Context) -> Result<Option<Instruction>, ()> {
+        // eat all newlines before an instruction to ignore empty lines
+        // whitespace is ignored entirely, so it does not need to be considered
+        while matches!(self.current.kind(), TokenKind::Newline) {
+            self.bump();
+        }
+
+        if self.current.kind() == &TokenKind::EoF {
+            return Ok(None);
+        }
+
+        let span_start = self.current.span();
         let mut inner = || {
-            // eat all newlines before an instruction to ignore empty lines
-            // whitespace is ignored entirely, so it does not need to be considered
-            while matches!(self.current.kind(), TokenKind::Newline) {
-                self.bump();
-            }
-
-            if self.current.kind() == &TokenKind::EoF {
-                return Ok(None);
-            }
-
             let inst = self.expect_ident().map_err(|d| ctx.add_diag(d))?;
 
             let inst = match inst.to_lowercase().as_str() {
@@ -73,6 +76,11 @@ impl<'a> Parser<'a> {
                 self.bump();
             }
         }
+
+        if ret.is_err() {
+            warn!("parsing encountered \"fatal\" error starting at {:?}, this probably should not happen", span_start);
+        }
+
         ret
     }
 
@@ -376,11 +384,22 @@ impl<'a> Parser<'a> {
             RegSelector::new_gpr(0)
         });
         if !self.eat(&TokenKind::Comma) {
-            ctx.add_diag(Diagnostic::new(
-                String::from("missing comma between lhs and rhs"),
-                self.current.span(),
-            ));
-            // allow recovery by not returning
+            if matches!(self.current.kind(), TokenKind::Newline) {
+                // the user probably assumed this was a two argument math op of the form dst, src
+                // but it actually is three, dst, lhs, rhs
+                ctx.add_diag(Diagnostic::new(
+                    String::from("math operands are of the form `op dst, lhs, rhs`"),
+                    self.current.span(),
+                ));
+                // do not recover
+                return Err(());
+            } else {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("missing comma between lhs and rhs"),
+                    self.current.span(),
+                ));
+                // allow recovery by not returning
+            }
         }
 
         let rhs = self.parse_reg().unwrap_or_else(|d| {
@@ -498,9 +517,18 @@ impl<'a> Parser<'a> {
     fn parse_move_operand(&mut self, ctx: &mut Context) -> Result<LoadStoreOp, ()> {
         let is_mem = self.eat(&TokenKind::LeftBracket);
 
+        // memory operands must contain their selector in order starting with X
+        // since they must be precisely x or xyzw
+        // but register operands can be any ordered sequence of selectors
+        let select_mode = if is_mem {
+            SelectorMode::SquentialXStart
+        } else {
+            SelectorMode::Ordered
+        };
+
         // we can exit early here and the higher levels will eat until
         // end of line to prevent cascading errors
-        let set = self.parse_set_reg(ctx, true)?;
+        let set = self.parse_set_reg(ctx, select_mode)?;
 
         if is_mem {
             let selector = set.selector();
@@ -581,7 +609,11 @@ impl<'a> Parser<'a> {
         Ok(reg)
     }
 
-    fn parse_set_reg(&mut self, ctx: &mut Context, seq: bool) -> Result<SetRegSelector, ()> {
+    fn parse_set_reg(
+        &mut self,
+        ctx: &mut Context,
+        select_mode: SelectorMode,
+    ) -> Result<SetRegSelector, ()> {
         let reg = self.parse_reg().map_err(|d| {
             ctx.add_diag(d);
         })?;
@@ -594,7 +626,7 @@ impl<'a> Parser<'a> {
             return Err(());
         }
 
-        let selector = self.parse_selector(ctx, seq)?;
+        let selector = self.parse_selector(ctx, select_mode)?;
 
         Ok(SetRegSelector::new(reg, selector))
     }
@@ -617,7 +649,11 @@ impl<'a> Parser<'a> {
         Ok(SwizzleRegSelector::new(reg, selector))
     }
 
-    fn parse_selector(&mut self, ctx: &mut Context, seq: bool) -> Result<SetSelector, ()> {
+    fn parse_selector(
+        &mut self,
+        ctx: &mut Context,
+        select_mode: SelectorMode,
+    ) -> Result<SetSelector, ()> {
         let select_str = self
             .expect_ident()
             .unwrap_or_else(|d| {
@@ -636,8 +672,96 @@ impl<'a> Parser<'a> {
             return Err(());
         }
 
-        let selector = if seq {
-            match select_str.as_str() {
+        let selector = match select_mode {
+            SelectorMode::NoRestrict => {
+                let mut selector = SetSelector::empty();
+                for c in select_str.chars() {
+                    // NOTE: duplicate selectors are not an immediate return, just ignored for recovery
+                    match c {
+                        'x' => {
+                            if selector.set(0b00) {
+                                ctx.add_diag(Diagnostic::new(
+                                    String::from("`x` already present in unordered selector"),
+                                    ident_span,
+                                ));
+                            }
+                        }
+                        'y' => {
+                            if selector.set(0b01) {
+                                ctx.add_diag(Diagnostic::new(
+                                    String::from("`y` already present in unordered selector"),
+                                    ident_span,
+                                ));
+                            }
+                        }
+                        'z' => {
+                            if selector.set(0b10) {
+                                ctx.add_diag(Diagnostic::new(
+                                    String::from("`z` already present in unordered selector"),
+                                    ident_span,
+                                ));
+                            }
+                        }
+                        'w' => {
+                            if selector.set(0b11) {
+                                ctx.add_diag(Diagnostic::new(
+                                    String::from("`w` already present in unordered selector"),
+                                    ident_span,
+                                ));
+                            }
+                        }
+                        _ => {
+                            ctx.add_diag(Diagnostic::new(
+                                format!("invalid register selector {}", select_str),
+                                ident_span,
+                            ));
+                            return Err(());
+                        }
+                    }
+                }
+                selector
+            }
+            SelectorMode::Ordered => {
+                let mut selector = SetSelector::empty();
+                let mut last_idx = -1;
+
+                for c in select_str.chars() {
+                    let idx: i32 = match c {
+                        'x' => 0b00,
+                        'y' => 0b01,
+                        'z' => 0b10,
+                        'w' => 0b11,
+                        _ => {
+                            ctx.add_diag(Diagnostic::new(
+                                format!("invalid register selector {}", select_str),
+                                ident_span,
+                            ));
+                            return Err(());
+                        }
+                    };
+
+                    // an element must either be first (last was -1) or preceded by the
+                    // previous element in order
+                    if last_idx == -1 || last_idx == (idx - 1) {
+                        if selector.set(idx as u8) {
+                            // NOTE: duplicate selectors are not an immediate return, just ignored for recovery
+                            ctx.add_diag(Diagnostic::new(
+                                format!("`{}` already present in selector", c),
+                                ident_span,
+                            ));
+                        }
+                    } else {
+                        ctx.add_diag(Diagnostic::new(
+                            String::from("register selector must have its elements in order"),
+                            ident_span,
+                        ));
+                    }
+
+                    last_idx = idx;
+                }
+                selector
+            }
+            SelectorMode::SquentialXStart => match select_str.as_str() {
                 "xyzw" => SetSelector::from_bits(0b1111),
                 "xyz" => SetSelector::from_bits(0b0111),
                 "xy" => SetSelector::from_bits(0b0011),
@@ -649,54 +773,7 @@ impl<'a> Parser<'a> {
                     ));
                     return Err(());
                 }
-            }
-        } else {
-            let mut selector = SetSelector::empty();
-            for c in select_str.chars() {
-                // NOTE: duplicate selectors are not an immediate return, just ignored for recovery
-                match c {
-                    'x' => {
-                        if selector.set(0b00) {
-                            ctx.add_diag(Diagnostic::new(
-                                String::from("`x` already present in unordered selector"),
-                                ident_span,
-                            ));
-                        }
-                    }
-                    'y' => {
-                        if selector.set(0b01) {
-                            ctx.add_diag(Diagnostic::new(
-                                String::from("`x` already present in unordered selector"),
-                                ident_span,
-                            ));
-                        }
-                    }
-                    'z' => {
-                        if selector.set(0b10) {
-                            ctx.add_diag(Diagnostic::new(
-                                String::from("`x` already present in unordered selector"),
-                                ident_span,
-                            ));
-                        }
-                    }
-                    'w' => {
-                        if selector.set(0b11) {
-                            ctx.add_diag(Diagnostic::new(
-                                String::from("`x` already present in unordered selector"),
-                                ident_span,
-                            ));
-                        }
-                    }
-                    _ => {
-                        ctx.add_diag(Diagnostic::new(
-                            format!("invalid register selector {}", select_str),
-                            ident_span,
-                        ));
-                        return Err(());
-                    }
-                }
-            }
-            selector
+            },
         };
 
         Ok(selector)
@@ -785,6 +862,18 @@ enum SubMode {
 enum CmpMode {
     Eq,
     Neq,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SelectorMode {
+    /// the selector can contain any elements in any order
+    /// this is used for swizzle, for example
+    NoRestrict,
+    /// the selector must list the elements it selects in order, but may
+    /// start with any selector
+    Ordered,
+    /// selector must start with an X selector and contain sequential selectors
+    SquentialXStart,
 }
 
 #[derive(Debug, Clone, Copy)]
