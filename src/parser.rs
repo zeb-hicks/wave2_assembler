@@ -87,17 +87,17 @@ impl<'a> Parser<'a> {
     fn parse_move(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
         self.bump();
 
-        let src = self.parse_move_operand(ctx)?;
+        let dst = self.parse_move_operand(ctx)?;
 
         if !self.eat(&TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
-                String::from("missing comma between lhs and rhs"),
+                String::from("missing comma between dst and src"),
                 self.current.span(),
             ));
             // allow recovery by not returning
         }
 
-        let dst = self.parse_move_operand(ctx)?;
+        let src = self.parse_move_operand(ctx)?;
 
         match (src, dst) {
             (LoadStoreOp::RegOp(src), LoadStoreOp::RegOp(dst)) => {

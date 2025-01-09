@@ -95,15 +95,15 @@ mov r6.xyzw, r1.xyzw      # r6 - test result
 sub.w r6, r6, r2          # subtract line start address from current pixel address
 lsr.w r6, 3               # right-shift counter (1000 -> 0001, other -> 0000)
 mov r6.yzw, c4.yzw        # zero-out yzw of a jump increment
-add.w r6, r7              # jump over if test is true [freeing r6]
+add.w r7, r7, r6          # jump over if test is true [freeing r6]
 swizzle r7.yyzw           # jump to :Y => next pixel
 # == pixel loop end ==
-add.w c3, r2              # increment line addr 
-add.w c4, r4              # increment line counter
+add.w r2, r2, c3          # increment line addr 
+add.w r4, r4, c4          # increment line counter
 # restart test
 mov r6.xyzw, r4.xyzw      # r6 - test result
 lsr.w r6, 3               # right-shift counter to get the jump (1000 -> 0001, other -> 0000)
-add.w r6, r7              # jump over if test is true [freeing r6]
+add.w r7, r7, r6          # jump over if test is true [freeing r6]
 swizzle r7.zyzw           # jump to :Z => next line
 # == line loop end ==
 swizzle r7.wyzw           # jump to :W => restart
