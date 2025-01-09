@@ -626,7 +626,7 @@ impl<'a> Parser<'a> {
             return Err(());
         }
 
-        let selector = self.parse_selector(ctx, select_mode)?;
+        let selector = self.parse_set_selector(ctx, select_mode)?;
 
         Ok(SetRegSelector::new(reg, selector))
     }
@@ -649,7 +649,7 @@ impl<'a> Parser<'a> {
         Ok(SwizzleRegSelector::new(reg, selector))
     }
 
-    fn parse_selector(
+    fn parse_set_selector(
         &mut self,
         ctx: &mut Context,
         select_mode: SelectorMode,
@@ -673,54 +673,6 @@ impl<'a> Parser<'a> {
         }
 
         let selector = match select_mode {
-            SelectorMode::NoRestrict => {
-                let mut selector = SetSelector::empty();
-                for c in select_str.chars() {
-                    // NOTE: duplicate selectors are not an immediate return, just ignored for recovery
-                    match c {
-                        'x' => {
-                            if selector.set(0b00) {
-                                ctx.add_diag(Diagnostic::new(
-                                    String::from("`x` already present in unordered selector"),
-                                    ident_span,
-                                ));
-                            }
-                        }
-                        'y' => {
-                            if selector.set(0b01) {
-                                ctx.add_diag(Diagnostic::new(
-                                    String::from("`y` already present in unordered selector"),
-                                    ident_span,
-                                ));
-                            }
-                        }
-                        'z' => {
-                            if selector.set(0b10) {
-                                ctx.add_diag(Diagnostic::new(
-                                    String::from("`z` already present in unordered selector"),
-                                    ident_span,
-                                ));
-                            }
-                        }
-                        'w' => {
-                            if selector.set(0b11) {
-                                ctx.add_diag(Diagnostic::new(
-                                    String::from("`w` already present in unordered selector"),
-                                    ident_span,
-                                ));
-                            }
-                        }
-                        _ => {
-                            ctx.add_diag(Diagnostic::new(
-                                format!("invalid register selector {}", select_str),
-                                ident_span,
-                            ));
-                            return Err(());
-                        }
-                    }
-                }
-                selector
-            }
             SelectorMode::Ordered => {
                 let mut selector = SetSelector::empty();
                 let mut last_idx = -1;
@@ -790,21 +742,21 @@ impl<'a> Parser<'a> {
         let ident_span = self.current.span();
 
         self.bump();
+        if select_str.len() > 4 {
+            ctx.add_diag(Diagnostic::new(
+                String::from("too many selectors"),
+                ident_span,
+            ));
+            return Err(());
+        }
+
         let mut selector = SwizzleSelector::empty();
-        let mut idx = 0;
-        for c in select_str.chars() {
-            if idx > 3 {
-                ctx.add_diag(Diagnostic::new(
-                    String::from("too many selectors"),
-                    ident_span,
-                ));
-                return Err(());
-            }
+        for (idx, c) in select_str.chars().enumerate() {
             match c {
-                'x' => selector.set(idx, 0b00),
-                'y' => selector.set(idx, 0b01),
-                'z' => selector.set(idx, 0b10),
-                'w' => selector.set(idx, 0b11),
+                'x' => selector.set(idx as u8, 0b00),
+                'y' => selector.set(idx as u8, 0b01),
+                'z' => selector.set(idx as u8, 0b10),
+                'w' => selector.set(idx as u8, 0b11),
                 _ => {
                     ctx.add_diag(Diagnostic::new(
                         String::from("invalid register selector"),
@@ -813,7 +765,6 @@ impl<'a> Parser<'a> {
                     return Err(());
                 }
             }
-            idx += 1;
         }
 
         Ok(selector)
@@ -866,9 +817,6 @@ enum CmpMode {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SelectorMode {
-    /// the selector can contain any elements in any order
-    /// this is used for swizzle, for example
-    NoRestrict,
     /// the selector must list the elements it selects in order, but may
     /// start with any selector
     Ordered,
