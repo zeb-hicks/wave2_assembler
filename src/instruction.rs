@@ -170,10 +170,33 @@ impl RegSelector {
     pub fn idx(&self) -> u8 {
         self.idx
     }
+
+    /// returns `true` if the register is a const register, otherwise `false``.
+    pub fn is_const(&self) -> bool {
+        self.idx <= MAX_REG_IDX
+    }
+
+    /// returns `true` if the register is a general purpose register, otherwise `false`.
+    /// this method considers `ri` (`r15`) to be a general purpose register
+    /// because it is writable.
+    pub fn is_gpr(&self) -> bool {
+        MAX_REG_IDX < self.idx && self.idx <= DATA_IDX_OFFSET + MAX_REG_IDX
+    }
 }
 
 impl fmt::Debug for RegSelector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.idx {
+            n @ 0..=7 => write!(f, "c{}", n),
+            n @ 8..=14 => write!(f, "r{}", n - DATA_IDX_OFFSET),
+            15 => write!(f, "ri"),
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl fmt::Display for RegSelector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.idx {
             n @ 0..=7 => write!(f, "c{}", n),
             n @ 8..=14 => write!(f, "r{}", n - DATA_IDX_OFFSET),

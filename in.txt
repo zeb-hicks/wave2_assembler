@@ -1,37 +1,37 @@
-# === sub ===
+# ====== sub ======
 sub.b r0, r0, r1        # r0 = r0 - r1
 sub.b r2, r3, r2        # r2 = r3 - r2
 #sub.b r6, r5, r4        # invalid
 
-# === sub_sat ===
+# ====== sub_sat ======
 sub_sat.b r0, r0, r1    # r0 = r0 - r1
 sub_sat.b r2, r3, r2    # r2 = r3 - r2
 #sub_sat.b r6, r5, r4    # invalid
 
-# === add ===
+# ====== add ======
 add.b r0, r0, r1        # r0 = r0 + r1
 add.b r0, r1, r0        # r0 = r1 + r0
 #add.b r4, r5, r6        # invalid
 
-# === add_sat ===
+# ====== add_sat ======
 add_sat.b r0, r0, r1    # r0 = r0 + r1
 add_sat.b r0, r1, r0    # r0 = r1 + r0
 #add_sat.b r4, r5, r6    # invalid
 
-# === cmp === #
-## == eq == ##
+# ====== cmp ======
+## == eq ==
 cmpeq.b r0, r0, r1      # r0 = r0 == r1
 cmpeq.b r0, r1, r0      # r0 = r1 == r1
 #cmpeq.b r4, r5, r6      # invalid
 
-## == ne == ##
+## == ne ==
 cmpneq.b r0, r0, r1      # r0 = r0 != r1
 cmpneq.b r0, r1, r0      # r0 = r1 != r0
 #cmpneq.b r4, r5, r6      # invalid
 
 ###### TODO: re-implement the carry-like compares and adds
 
-## == mov == ##
+# ====== mov ======
 mov r0.xyzw, r1.xyzw     # register to register move
 mov r0.xy, r1.xy         # register to register move (masked)
 mov [r0.x]+, r1.xyzw     # register to memory move
@@ -46,16 +46,17 @@ asr.w r4, r0
 lsr.w r4, r0
 ror.w r4, 5
 
-# maybe implement mov 1, reg and mov 0, reg as bitop w/ zero and one operations?
+# TODO: maybe implement mov 1, reg and mov 0, reg as bitop w/ zero and one operations?
 
-and r2, r3
-or r2, r3
-xor r2, r3
-nand r2, r3
-nor r2, r3
-xnor r2, r3
-not r3 # notdst
-# how to express dst = notsrc?
+# ====== bitops ======
+and r0, c0               # r0 = r0 & c0
+or r2, r3                # r2 = r2 | r3
+xor r2, r3               # r2 = r2 ^ r3
+nand r2, r3              # r2 = not (r2 & r3)
+nor r2, r3               # r2 = not (r2 | r3)
+xnor r2, r3              # r2 = not (r2 ^ r3)
+not r3                   # r3 = !r3
+# TODO: how to express dst = notsrc?
 
 
 
@@ -86,7 +87,7 @@ mov r1.xyzw, r2.xyzw      # r1 - current pixel target address
 # == pixel loop start ==
 swizzle r7.xxzw           # :Y pixels
 mov r5.xyzw, r0.xyzw      # r5 - pixel data
-and c2, r5                # apply mask - get color indexes
+and r5, c2                # apply mask - get color indexes
 mov r6.xyzw, [r5.xyzw]    # r6 - color data [freeing r5]
 mov [r1.xyzw]+, r6.xyzw   # draw and increment pixel target address [freeing r6]
 rol.w r0, 2               # roll image data to the next pixel

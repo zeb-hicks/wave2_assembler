@@ -1,4 +1,4 @@
-use log::{debug, warn};
+use log::*;
 
 use crate::lexer::Span;
 use crate::{
@@ -40,17 +40,29 @@ impl<'a> Parser<'a> {
             let inst = match inst.to_lowercase().as_str() {
                 "mov" => self.parse_move(ctx)?,
                 "swizzle" => self.parse_swizzle(ctx)?,
+
+                // =========
+                // math ops
+                // =========
                 "add" => self.parse_add(ctx, AddMode::Normal)?,
                 "add_sat" => self.parse_add(ctx, AddMode::Saturate)?,
                 "sub" => self.parse_sub(ctx, SubMode::Normal)?,
                 "sub_sat" => self.parse_sub(ctx, SubMode::Saturate)?,
                 "cmpeq" => self.parse_cmp(ctx, CmpMode::Eq)?,
                 "cmpneq" => self.parse_cmp(ctx, CmpMode::Neq)?,
+
+                // ==========
+                // shift ops
+                // ==========
                 "lsl" | "asl" => self.parse_lsl(ctx)?,
                 "rol" => self.parse_rol(ctx)?,
                 "asr" => self.parse_asr(ctx)?,
                 "lsr" => self.parse_lsr(ctx)?,
                 "ror" => self.parse_ror(ctx)?,
+
+                // ============
+                // bitwise ops
+                // ============
                 "and" => self.parse_and(ctx),
                 "or" => self.parse_or(ctx),
                 "xor" => self.parse_xor(ctx),
@@ -58,6 +70,7 @@ impl<'a> Parser<'a> {
                 "nor" => self.parse_nor(ctx),
                 "xnor" => self.parse_xnor(ctx),
                 "not" => self.parse_unary_not(ctx),
+
                 _ => {
                     ctx.add_diag(Diagnostic::new(
                         format!("invalid instruction `{}`", inst),
@@ -85,6 +98,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_move(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+        let span = self.current.span();
         self.bump();
 
         let dst = self.parse_move_operand(ctx)?;
@@ -114,9 +128,25 @@ impl<'a> Parser<'a> {
                     ));
                 }
 
+                // the dst must be a writable register
+                if !dst.reg().is_gpr() {
+                    ctx.add_diag(Diagnostic::new(
+                        format!("expected dst to be a writable register, got {}", dst.reg()),
+                        span,
+                    ));
+                }
+
                 Ok(Instruction::Move { src, dst })
             }
             (LoadStoreOp::MemOp(mem), LoadStoreOp::RegOp(dst)) => {
+                // the dst must be a writable register
+                if !dst.reg().is_gpr() {
+                    ctx.add_diag(Diagnostic::new(
+                        format!("expected dst to be a writable register, got {}", dst.reg()),
+                        span,
+                    ));
+                }
+
                 Ok(Instruction::Load { mem, dst })
             }
             (LoadStoreOp::RegOp(src), LoadStoreOp::MemOp(mem)) => {
@@ -131,8 +161,16 @@ impl<'a> Parser<'a> {
     fn parse_swizzle(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
         self.bump();
 
-        let reg = self.parse_swizzle_reg(ctx)?;
-        Ok(Instruction::Swizzle { reg })
+        let span = self.current.span();
+        let dst = self.parse_swizzle_reg(ctx)?;
+        // the dst must be a writable register
+        if !dst.reg().is_gpr() {
+            ctx.add_diag(Diagnostic::new(
+                format!("expected dst to be a writable register, got {}", dst.reg()),
+                span,
+            ));
+        }
+        Ok(Instruction::Swizzle { reg: dst })
     }
 
     fn parse_add(&mut self, ctx: &mut Context, mode: AddMode) -> Result<Instruction, ()> {
@@ -290,42 +328,52 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_and(&mut self, ctx: &mut Context) -> Instruction {
-        let (src, dst) = self.parse_bitop_common(ctx);
+        let (dst, src) = self.parse_bitop_common(ctx);
         Instruction::BitAnd { src, dst }
     }
 
     fn parse_or(&mut self, ctx: &mut Context) -> Instruction {
-        let (src, dst) = self.parse_bitop_common(ctx);
+        let (dst, src) = self.parse_bitop_common(ctx);
         Instruction::BitOr { src, dst }
     }
 
     fn parse_xor(&mut self, ctx: &mut Context) -> Instruction {
-        let (src, dst) = self.parse_bitop_common(ctx);
+        let (dst, src) = self.parse_bitop_common(ctx);
         Instruction::BitXor { src, dst }
     }
 
     fn parse_nand(&mut self, ctx: &mut Context) -> Instruction {
-        let (src, dst) = self.parse_bitop_common(ctx);
+        let (dst, src) = self.parse_bitop_common(ctx);
         Instruction::BitNand { src, dst }
     }
 
     fn parse_nor(&mut self, ctx: &mut Context) -> Instruction {
-        let (src, dst) = self.parse_bitop_common(ctx);
+        let (dst, src) = self.parse_bitop_common(ctx);
         Instruction::BitNor { src, dst }
     }
 
     fn parse_xnor(&mut self, ctx: &mut Context) -> Instruction {
-        let (src, dst) = self.parse_bitop_common(ctx);
+        let (dst, src) = self.parse_bitop_common(ctx);
         Instruction::BitXnor { src, dst }
     }
 
     fn parse_unary_not(&mut self, ctx: &mut Context) -> Instruction {
         self.bump();
+        let span = self.current.span();
+        let mut was_err = false;
         let dst = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
+            was_err = true;
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0)
         });
+        // the dst must be a writable register
+        if !was_err && !dst.is_gpr() {
+            ctx.add_diag(Diagnostic::new(
+                format!("expected dst to be a writable register, got {}", dst),
+                span,
+            ));
+        }
         Instruction::UnaryBitNot { dst }
     }
 
@@ -365,8 +413,11 @@ impl<'a> Parser<'a> {
         };
         self.bump();
 
+        let dst_span = self.current.span();
+        let mut was_reg_err = true;
         let dst = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
+            was_reg_err = true;
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0)
         });
@@ -380,6 +431,7 @@ impl<'a> Parser<'a> {
 
         let lhs = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
+            was_reg_err = true;
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0)
         });
@@ -404,9 +456,19 @@ impl<'a> Parser<'a> {
 
         let rhs = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
+            was_reg_err = true;
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0)
         });
+
+        // the dst must be a writable register
+        if !was_reg_err && !dst.is_gpr() {
+            ctx.add_diag(Diagnostic::new(
+                format!("expected dst to be a writable register, got {}", dst),
+                dst_span,
+            ));
+        }
+
         Ok((size, dst, lhs, rhs))
     }
 
@@ -442,10 +504,16 @@ impl<'a> Parser<'a> {
         };
         self.bump();
 
-        // shifts are odd in that they are dst = dst <shift> amount
+        let dst_span = self.current.span();
+        let mut was_reg_err = false;
+
         // if there was an error parsing the dst register, use a dummy selector
         // to allow parsing to continue
-        let dst = self.parse_reg().unwrap_or(RegSelector::new_gpr(0));
+        let dst = self.parse_reg().unwrap_or_else(|d| {
+            ctx.add_diag(d);
+            was_reg_err = true;
+            RegSelector::new_gpr(0)
+        });
 
         if !self.eat(&TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
@@ -458,6 +526,7 @@ impl<'a> Parser<'a> {
         let amount = match self.current.kind() {
             TokenKind::Ident(_) => ShiftAmount::Register(self.parse_reg().unwrap_or_else(|d| {
                 ctx.add_diag(d);
+                was_reg_err = true;
                 // use a dummy selector to allow recovery
                 RegSelector::new_gpr(0)
             })),
@@ -485,33 +554,57 @@ impl<'a> Parser<'a> {
             }
         };
 
+        // the dst must be a writable register
+        if !dst.is_gpr() {
+            ctx.add_diag(Diagnostic::new(
+                format!("expected dst to be a writable register, got {}", dst),
+                dst_span,
+            ));
+        }
+
         Ok((size, dst, amount))
     }
 
+    /// parses a bitwise operation of the form `OP dst, src`.
+    /// this does not need to have three arguments because all bitwise operations
+    /// can be executed with the lhs and rhs in either order.
+    /// returns (dst, src)
     fn parse_bitop_common(&mut self, ctx: &mut Context) -> (RegSelector, RegSelector) {
         self.bump();
 
-        let lhs = self.parse_reg().unwrap_or_else(|d| {
+        let dst_span = self.current.span();
+        let mut was_reg_err = false;
+        let dst = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
+            was_reg_err = true;
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0)
         });
 
         if !self.eat(&TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
-                String::from("missing comma between lhs and rhs"),
+                String::from("missing comma between dst and src"),
                 self.current.span(),
             ));
             // allow recovery by not returning
         }
 
-        let rhs = self.parse_reg().unwrap_or_else(|d| {
+        let src = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
+            was_reg_err = true;
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0)
         });
 
-        (lhs, rhs)
+        // the dst must be a writable register
+        if !was_reg_err && !dst.is_gpr() {
+            ctx.add_diag(Diagnostic::new(
+                format!("expected dst to be a writable register, got {}", dst),
+                dst_span,
+            ));
+        }
+
+        (dst, src)
     }
 
     fn parse_move_operand(&mut self, ctx: &mut Context) -> Result<LoadStoreOp, ()> {
@@ -828,14 +921,4 @@ enum SelectorMode {
 enum LoadStoreOp {
     MemOp(MemoryOperand),
     RegOp(SetRegSelector),
-}
-
-impl LoadStoreOp {
-    fn is_reg(&self) -> bool {
-        matches!(self, Self::RegOp(_))
-    }
-
-    fn is_mem(&self) -> bool {
-        matches!(self, Self::MemOp(_))
-    }
 }
