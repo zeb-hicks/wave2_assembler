@@ -1,14 +1,14 @@
 use log::*;
 
-use crate::instruction::{Instruction, OpSize, RegSelector, ShiftAmount};
+use crate::instruction::{Instruction, InstructionKind, OpSize, RegSelector, ShiftAmount};
 
 pub fn gen(insts: &[Instruction]) -> Vec<u16> {
     insts.into_iter().flat_map(|i| gen_inst(*i)).collect()
 }
 
 fn gen_inst(inst: Instruction) -> Vec<u16> {
-    use Instruction::*;
-    match inst {
+    use InstructionKind::*;
+    match *inst.kind() {
         Move { src, dst } => {
             // place a 1 bit everywhere we want to *not* move
             let skip_mask = src.selector().bits() ^ 0b1111;
@@ -145,7 +145,7 @@ fn shift_op(op: u8, size: OpSize, dst: RegSelector, amount: ShiftAmount) -> u16 
     };
     let (op, src) = match amount {
         ShiftAmount::Register(reg) => (op, reg.idx()),
-        ShiftAmount::Const(val) => (op | 0b1000, val),
+        ShiftAmount::Const(val, _) => (op | 0b1000, val),
     };
     op_from_parts(dst.idx(), src, op, size)
 }

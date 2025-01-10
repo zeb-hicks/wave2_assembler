@@ -1,11 +1,12 @@
 use log::*;
 
+use crate::instruction::Instruction;
 use crate::lexer::Span;
 use crate::{
     diag::{Context, Diagnostic},
     instruction::{
-        Instruction, MemoryOperand, OpSize, RegSelector, SetRegSelector, SetSelector, ShiftAmount,
-        SwizzleRegSelector, SwizzleSelector, MAX_REG_IDX,
+        InstructionKind, MemoryOperand, OpSize, RegSelector, SetRegSelector, SetSelector,
+        ShiftAmount, SwizzleRegSelector, SwizzleSelector, MAX_REG_IDX,
     },
     lexer::{Lexer, Token, TokenKind},
 };
@@ -98,7 +99,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_move(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
-        let span = self.current.span();
+        let span_start = self.current.span();
         self.bump();
 
         let dst = self.parse_move_operand(ctx)?;
@@ -132,26 +133,33 @@ impl<'a> Parser<'a> {
                 if !dst.reg().is_gpr() {
                     ctx.add_diag(Diagnostic::new(
                         format!("expected dst to be a writable register, got {}", dst.reg()),
-                        span,
+                        dst.span(),
                     ));
                 }
 
-                Ok(Instruction::Move { src, dst })
+                Ok(Instruction::new(
+                    InstructionKind::Move { src, dst },
+                    Span::between(span_start, src.span()),
+                ))
             }
             (LoadStoreOp::MemOp(mem), LoadStoreOp::RegOp(dst)) => {
                 // the dst must be a writable register
                 if !dst.reg().is_gpr() {
                     ctx.add_diag(Diagnostic::new(
                         format!("expected dst to be a writable register, got {}", dst.reg()),
-                        span,
+                        dst.span(),
                     ));
                 }
 
-                Ok(Instruction::Load { mem, dst })
+                Ok(Instruction::new(
+                    InstructionKind::Load { mem, dst },
+                    Span::between(span_start, mem.span()),
+                ))
             }
-            (LoadStoreOp::RegOp(src), LoadStoreOp::MemOp(mem)) => {
-                Ok(Instruction::Store { src, mem })
-            }
+            (LoadStoreOp::RegOp(src), LoadStoreOp::MemOp(mem)) => Ok(Instruction::new(
+                InstructionKind::Store { src, mem },
+                Span::between(span_start, src.span()),
+            )),
 
             // mem-to-mem moves do not exist
             (LoadStoreOp::MemOp(_), LoadStoreOp::MemOp(_)) => todo!(),
@@ -159,6 +167,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_swizzle(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
         self.bump();
 
         let span = self.current.span();
@@ -170,7 +179,10 @@ impl<'a> Parser<'a> {
                 span,
             ));
         }
-        Ok(Instruction::Swizzle { reg: dst })
+        Ok(Instruction::new(
+            InstructionKind::Swizzle { reg: dst },
+            Span::between(span_start, dst.span()),
+        ))
     }
 
     fn parse_add(&mut self, ctx: &mut Context, mode: AddMode) -> Result<Instruction, ()> {
@@ -194,7 +206,7 @@ impl<'a> Parser<'a> {
             // add could not be encoded in only two registers, error
             ctx.add_diag(Diagnostic::new(
                 String::from("add must be of the form `dst = dst + src` or `dst = src + dst`"),
-                Span::between(span_start, self.current.span()),
+                Span::between(span_start, rhs.span()),
             ));
 
             // pick lhs to be the src arbitrarily
@@ -202,28 +214,31 @@ impl<'a> Parser<'a> {
             lhs
         };
 
-        let inst = match mode {
-            AddMode::Normal => Instruction::Add { size, src, dst },
-            AddMode::Saturate => Instruction::AddSaturate { size, src, dst },
+        let kind = match mode {
+            AddMode::Normal => InstructionKind::Add { size, src, dst },
+            AddMode::Saturate => InstructionKind::AddSaturate { size, src, dst },
         };
 
-        Ok(inst)
+        Ok(Instruction::new(
+            kind,
+            Span::between(span_start, rhs.span()),
+        ))
     }
 
     fn parse_sub(&mut self, ctx: &mut Context, mode: SubMode) -> Result<Instruction, ()> {
         let span_start = self.current.span();
         let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
 
-        let inst = if dst == lhs {
+        let kind = if dst == lhs {
             // dst = lhs - rhs
             // dst = dst - rhs
             match mode {
-                SubMode::Normal => Instruction::SubRev {
+                SubMode::Normal => InstructionKind::SubRev {
                     size,
                     src: rhs,
                     dst,
                 },
-                SubMode::Saturate => Instruction::SubRevSaturate {
+                SubMode::Saturate => InstructionKind::SubRevSaturate {
                     size,
                     src: rhs,
                     dst,
@@ -233,12 +248,12 @@ impl<'a> Parser<'a> {
             // dst = lhs - rhs
             // dst = lhs - dst
             match mode {
-                SubMode::Normal => Instruction::Sub {
+                SubMode::Normal => InstructionKind::Sub {
                     size,
                     src: lhs,
                     dst,
                 },
-                SubMode::Saturate => Instruction::SubSaturate {
+                SubMode::Saturate => InstructionKind::SubSaturate {
                     size,
                     src: lhs,
                     dst,
@@ -248,32 +263,35 @@ impl<'a> Parser<'a> {
             // sub could not be encoded in only two registers, error
             ctx.add_diag(Diagnostic::new(
                 String::from("sub must be of the form `dst = dst - src` or `dst = src - dst`"),
-                Span::between(span_start, self.current.span()),
+                Span::between(span_start, rhs.span()),
             ));
 
             // generate a dummy sub instruction to allow for further parsing
-            Instruction::Sub {
+            InstructionKind::Sub {
                 size,
                 src: lhs,
                 dst: rhs,
             }
         };
 
-        Ok(inst)
+        Ok(Instruction::new(
+            kind,
+            Span::between(span_start, rhs.span()),
+        ))
     }
 
     fn parse_cmp(&mut self, ctx: &mut Context, mode: CmpMode) -> Result<Instruction, ()> {
         let span_start = self.current.span();
         let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
 
-        let inst = if dst == lhs {
+        let kind = if dst == lhs {
             // dst = lhs cmp rhs
             // dst = dst cmp src
             let src = rhs;
 
             match mode {
-                CmpMode::Eq => Instruction::CmpEq { size, src, dst },
-                CmpMode::Neq => Instruction::CmpNeq { size, src, dst },
+                CmpMode::Eq => InstructionKind::CmpEq { size, src, dst },
+                CmpMode::Neq => InstructionKind::CmpNeq { size, src, dst },
             }
         } else if dst == rhs {
             // dst = lhs cmp rhs
@@ -281,100 +299,151 @@ impl<'a> Parser<'a> {
             let src = lhs;
 
             match mode {
-                CmpMode::Eq => Instruction::CmpEq { size, src, dst },
-                CmpMode::Neq => Instruction::CmpNeq { size, src, dst },
+                CmpMode::Eq => InstructionKind::CmpEq { size, src, dst },
+                CmpMode::Neq => InstructionKind::CmpNeq { size, src, dst },
             }
         } else {
             // cmp could not be encoded in only two registers, error
             ctx.add_diag(Diagnostic::new(
                 String::from("compare instructions must be of the form `dst = dst <cmp> src` or `dst = src <cmp> dst`"),
-                Span::between(span_start, self.current.span()),
+                Span::between(span_start, rhs.span()),
             ));
 
             // generate a dummy instruction to allow for further parsing
-            Instruction::CmpEq {
+            InstructionKind::CmpEq {
                 size,
                 src: lhs,
                 dst: rhs,
             }
         };
 
-        Ok(inst)
+        Ok(Instruction::new(
+            kind,
+            Span::between(span_start, rhs.span()),
+        ))
     }
 
     fn parse_lsl(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::ShiftLeft { size, dst, amount })
+        Ok(Instruction::new(
+            InstructionKind::ShiftLeft { size, dst, amount },
+            Span::between(span_start, amount.span()),
+        ))
     }
 
     fn parse_rol(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::RotateLeft { size, dst, amount })
+        Ok(Instruction::new(
+            InstructionKind::RotateLeft { size, dst, amount },
+            Span::between(span_start, amount.span()),
+        ))
     }
 
     fn parse_lsr(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::ShiftRightLogical { size, dst, amount })
+        Ok(Instruction::new(
+            InstructionKind::ShiftRightLogical { size, dst, amount },
+            Span::between(span_start, amount.span()),
+        ))
     }
 
     fn parse_asr(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::ShiftRightArithmetic { size, dst, amount })
+        Ok(Instruction::new(
+            InstructionKind::ShiftRightArithmetic { size, dst, amount },
+            Span::between(span_start, amount.span()),
+        ))
     }
 
     fn parse_ror(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::RotateRight { size, dst, amount })
+        Ok(Instruction::new(
+            InstructionKind::RotateRight { size, dst, amount },
+            Span::between(span_start, amount.span()),
+        ))
     }
 
     fn parse_and(&mut self, ctx: &mut Context) -> Instruction {
+        let span_start = self.current.span();
         let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::BitAnd { src, dst }
+        Instruction::new(
+            InstructionKind::BitAnd { src, dst },
+            Span::between(span_start, src.span()),
+        )
     }
 
     fn parse_or(&mut self, ctx: &mut Context) -> Instruction {
+        let span_start = self.current.span();
         let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::BitOr { src, dst }
+        Instruction::new(
+            InstructionKind::BitOr { src, dst },
+            Span::between(span_start, src.span()),
+        )
     }
 
     fn parse_xor(&mut self, ctx: &mut Context) -> Instruction {
+        let span_start = self.current.span();
         let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::BitXor { src, dst }
+        Instruction::new(
+            InstructionKind::BitXor { src, dst },
+            Span::between(span_start, src.span()),
+        )
     }
 
     fn parse_nand(&mut self, ctx: &mut Context) -> Instruction {
+        let span_start = self.current.span();
         let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::BitNand { src, dst }
+        Instruction::new(
+            InstructionKind::BitNand { src, dst },
+            Span::between(span_start, src.span()),
+        )
     }
 
     fn parse_nor(&mut self, ctx: &mut Context) -> Instruction {
+        let span_start = self.current.span();
         let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::BitNor { src, dst }
+        Instruction::new(
+            InstructionKind::BitNor { src, dst },
+            Span::between(span_start, src.span()),
+        )
     }
 
     fn parse_xnor(&mut self, ctx: &mut Context) -> Instruction {
+        let span_start = self.current.span();
         let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::BitXnor { src, dst }
+        Instruction::new(
+            InstructionKind::BitXnor { src, dst },
+            Span::between(span_start, src.span()),
+        )
     }
 
     fn parse_unary_not(&mut self, ctx: &mut Context) -> Instruction {
+        let span_start = self.current.span();
         self.bump();
-        let span = self.current.span();
         let mut was_err = false;
         let dst = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
             was_err = true;
             // use a dummy selector to allow recovery
-            RegSelector::new_gpr(0)
+            RegSelector::new_gpr(0, Span::DUMMY)
         });
         // the dst must be a writable register
         if !was_err && !dst.is_gpr() {
             ctx.add_diag(Diagnostic::new(
                 format!("expected dst to be a writable register, got {}", dst),
-                span,
+                dst.span(),
             ));
         }
-        Instruction::UnaryBitNot { dst }
+
+        Instruction::new(
+            InstructionKind::UnaryBitNot { dst },
+            Span::between(span_start, dst.span()),
+        )
     }
 
     // =======================
@@ -419,7 +488,7 @@ impl<'a> Parser<'a> {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
-            RegSelector::new_gpr(0)
+            RegSelector::new_gpr(0, Span::DUMMY)
         });
         if !self.eat(&TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
@@ -433,7 +502,7 @@ impl<'a> Parser<'a> {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
-            RegSelector::new_gpr(0)
+            RegSelector::new_gpr(0, Span::DUMMY)
         });
         if !self.eat(&TokenKind::Comma) {
             if matches!(self.current.kind(), TokenKind::Newline) {
@@ -458,7 +527,7 @@ impl<'a> Parser<'a> {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
-            RegSelector::new_gpr(0)
+            RegSelector::new_gpr(0, Span::DUMMY)
         });
 
         // the dst must be a writable register
@@ -512,7 +581,7 @@ impl<'a> Parser<'a> {
         let dst = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
             was_reg_err = true;
-            RegSelector::new_gpr(0)
+            RegSelector::new_gpr(0, Span::DUMMY)
         });
 
         if !self.eat(&TokenKind::Comma) {
@@ -528,9 +597,10 @@ impl<'a> Parser<'a> {
                 ctx.add_diag(d);
                 was_reg_err = true;
                 // use a dummy selector to allow recovery
-                RegSelector::new_gpr(0)
+                RegSelector::new_gpr(0, Span::DUMMY)
             })),
             TokenKind::Number(num) => {
+                let span = self.current.span();
                 let num = *num;
                 self.bump();
 
@@ -540,9 +610,9 @@ impl<'a> Parser<'a> {
                         self.current.span(),
                     ));
                     // dummy value for recovery
-                    ShiftAmount::Const(0)
+                    ShiftAmount::Const(0, Span::DUMMY)
                 } else {
-                    ShiftAmount::Const(num as u8)
+                    ShiftAmount::Const(num as u8, span)
                 }
             }
             _ => {
@@ -578,7 +648,7 @@ impl<'a> Parser<'a> {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
-            RegSelector::new_gpr(0)
+            RegSelector::new_gpr(0, Span::DUMMY)
         });
 
         if !self.eat(&TokenKind::Comma) {
@@ -593,7 +663,7 @@ impl<'a> Parser<'a> {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
-            RegSelector::new_gpr(0)
+            RegSelector::new_gpr(0, Span::DUMMY)
         });
 
         // the dst must be a writable register
@@ -608,6 +678,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_move_operand(&mut self, ctx: &mut Context) -> Result<LoadStoreOp, ()> {
+        let span_start = self.current.span();
         let is_mem = self.eat(&TokenKind::LeftBracket);
 
         // memory operands must contain their selector in order starting with X
@@ -643,11 +714,13 @@ impl<'a> Parser<'a> {
                 // it's probably just missing, recover
             }
 
+            let span_end = self.current.span();
             let increment = self.eat(&TokenKind::Plus);
             Ok(LoadStoreOp::MemOp(MemoryOperand::new(
                 set.reg(),
                 all,
                 increment,
+                Span::between(span_start, span_end),
             )))
         } else {
             Ok(LoadStoreOp::RegOp(set))
@@ -655,6 +728,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_reg(&mut self) -> Result<RegSelector, Diagnostic> {
+        let span = self.current.span();
         let name = self.expect_ident().map_err(|d| {
             Diagnostic::new(
                 format!("expected register name got {}", self.current.kind()),
@@ -665,7 +739,7 @@ impl<'a> Parser<'a> {
             let idx = &name[1..];
             // ri is an alias for r7
             if idx == "i" {
-                RegSelector::new_gpr(7)
+                RegSelector::new_gpr(7, span)
             } else {
                 let idx = match idx.parse::<u8>() {
                     Ok(idx) if idx <= MAX_REG_IDX => idx,
@@ -677,7 +751,7 @@ impl<'a> Parser<'a> {
                         .with_note(format!("maximum register index is {}", MAX_REG_IDX)))
                     }
                 };
-                RegSelector::new_gpr(idx)
+                RegSelector::new_gpr(idx, span)
             }
         } else if name.starts_with('c') {
             let idx = &name[1..];
@@ -691,7 +765,7 @@ impl<'a> Parser<'a> {
                     .with_note(format!("maximum register index is {}", MAX_REG_IDX)))
                 }
             };
-            RegSelector::new_const(idx)
+            RegSelector::new_const(idx, span)
         } else {
             return Err(Diagnostic::new(
                 format!("invalid register `{}`", name),
@@ -721,7 +795,11 @@ impl<'a> Parser<'a> {
 
         let selector = self.parse_set_selector(ctx, select_mode)?;
 
-        Ok(SetRegSelector::new(reg, selector))
+        Ok(SetRegSelector::new(
+            reg,
+            selector,
+            Span::between(reg.span(), selector.span()),
+        ))
     }
 
     fn parse_swizzle_reg(&mut self, ctx: &mut Context) -> Result<SwizzleRegSelector, ()> {
@@ -739,7 +817,11 @@ impl<'a> Parser<'a> {
 
         let selector = self.parse_swizzle_selector(ctx)?;
 
-        Ok(SwizzleRegSelector::new(reg, selector))
+        Ok(SwizzleRegSelector::new(
+            reg,
+            selector,
+            Span::between(reg.span(), selector.span()),
+        ))
     }
 
     fn parse_set_selector(
@@ -767,7 +849,7 @@ impl<'a> Parser<'a> {
 
         let selector = match select_mode {
             SelectorMode::Ordered => {
-                let mut selector = SetSelector::empty();
+                let mut selector = SetSelector::empty(ident_span);
                 let mut last_idx = -1;
 
                 for c in select_str.chars() {
@@ -807,10 +889,10 @@ impl<'a> Parser<'a> {
                 selector
             }
             SelectorMode::SquentialXStart => match select_str.as_str() {
-                "xyzw" => SetSelector::from_bits(0b1111),
-                "xyz" => SetSelector::from_bits(0b0111),
-                "xy" => SetSelector::from_bits(0b0011),
-                "x" => SetSelector::from_bits(0b0001),
+                "xyzw" => SetSelector::from_bits(0b1111, ident_span),
+                "xyz" => SetSelector::from_bits(0b0111, ident_span),
+                "xy" => SetSelector::from_bits(0b0011, ident_span),
+                "x" => SetSelector::from_bits(0b0001, ident_span),
                 _ => {
                     ctx.add_diag(Diagnostic::new(
                         String::from("selector must contain sequential elements starting with `x`"),
@@ -843,7 +925,7 @@ impl<'a> Parser<'a> {
             return Err(());
         }
 
-        let mut selector = SwizzleSelector::empty();
+        let mut selector = SwizzleSelector::empty(ident_span);
         for (idx, c) in select_str.chars().enumerate() {
             match c {
                 'x' => selector.set(idx as u8, 0b00),

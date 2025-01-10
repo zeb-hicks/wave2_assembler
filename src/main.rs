@@ -1,11 +1,8 @@
-use std::{env, fs};
+#![feature(debug_closure_helpers)]
 
-use color_eyre::owo_colors::OwoColorize;
-use eyre::bail;
-use lexer::Span;
 use log::*;
 
-use diag::{Context, Diagnostic};
+use diag::Context;
 use parser::Parser;
 use source::Source;
 use util::ArrayPrinter;
