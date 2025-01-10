@@ -125,7 +125,7 @@ impl<'a> Parser<'a> {
                     // this is not critical to fail on, it's mostly for clarity in writing
                     ctx.add_diag(Diagnostic::new(
                         String::from("lhs and rhs of move must select the same elements"),
-                        self.current.span(),
+                        Span::between(dst.span(), src.span()),
                     ));
                 }
 
@@ -170,13 +170,12 @@ impl<'a> Parser<'a> {
         let span_start = self.current.span();
         self.bump();
 
-        let span = self.current.span();
         let dst = self.parse_swizzle_reg(ctx)?;
         // the dst must be a writable register
         if !dst.reg().is_gpr() {
             ctx.add_diag(Diagnostic::new(
                 format!("expected dst to be a writable register, got {}", dst.reg()),
-                span,
+                dst.span(),
             ));
         }
         Ok(Instruction::new(
@@ -454,6 +453,7 @@ impl<'a> Parser<'a> {
         &mut self,
         ctx: &mut Context,
     ) -> Result<(OpSize, RegSelector, RegSelector, RegSelector), ()> {
+        let span_start = self.current.span();
         self.bump();
 
         if !self.eat(&TokenKind::Dot) {
@@ -482,7 +482,6 @@ impl<'a> Parser<'a> {
         };
         self.bump();
 
-        let dst_span = self.current.span();
         let mut was_reg_err = true;
         let dst = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
@@ -510,7 +509,7 @@ impl<'a> Parser<'a> {
                 // but it actually is three, dst, lhs, rhs
                 ctx.add_diag(Diagnostic::new(
                     String::from("math operands are of the form `op dst, lhs, rhs`"),
-                    self.current.span(),
+                    Span::between(span_start, self.current.span()),
                 ));
                 // do not recover
                 return Err(());
@@ -534,7 +533,7 @@ impl<'a> Parser<'a> {
         if !was_reg_err && !dst.is_gpr() {
             ctx.add_diag(Diagnostic::new(
                 format!("expected dst to be a writable register, got {}", dst),
-                dst_span,
+                dst.span(),
             ));
         }
 
@@ -573,9 +572,7 @@ impl<'a> Parser<'a> {
         };
         self.bump();
 
-        let dst_span = self.current.span();
         let mut was_reg_err = false;
-
         // if there was an error parsing the dst register, use a dummy selector
         // to allow parsing to continue
         let dst = self.parse_reg().unwrap_or_else(|d| {
@@ -607,7 +604,7 @@ impl<'a> Parser<'a> {
                 if num > 0b1111 {
                     ctx.add_diag(Diagnostic::new(
                         String::from("shift amount must not be greater than 15"),
-                        self.current.span(),
+                        span,
                     ));
                     // dummy value for recovery
                     ShiftAmount::Const(0, Span::DUMMY)
@@ -625,10 +622,10 @@ impl<'a> Parser<'a> {
         };
 
         // the dst must be a writable register
-        if !dst.is_gpr() {
+        if !was_reg_err && !dst.is_gpr() {
             ctx.add_diag(Diagnostic::new(
                 format!("expected dst to be a writable register, got {}", dst),
-                dst_span,
+                dst.span(),
             ));
         }
 
@@ -642,7 +639,6 @@ impl<'a> Parser<'a> {
     fn parse_bitop_common(&mut self, ctx: &mut Context) -> (RegSelector, RegSelector) {
         self.bump();
 
-        let dst_span = self.current.span();
         let mut was_reg_err = false;
         let dst = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
@@ -670,7 +666,7 @@ impl<'a> Parser<'a> {
         if !was_reg_err && !dst.is_gpr() {
             ctx.add_diag(Diagnostic::new(
                 format!("expected dst to be a writable register, got {}", dst),
-                dst_span,
+                dst.span(),
             ));
         }
 
@@ -701,12 +697,12 @@ impl<'a> Parser<'a> {
             if !(x_only || all) {
                 ctx.add_diag(Diagnostic::new(
                     String::from("memory operands must use either reg.x or reg.xyzw"),
-                    self.current.span(),
+                    selector.span(),
                 ));
                 // recover with the invalid selector
             }
 
-            if is_mem && !self.eat(&TokenKind::RightBracket) {
+            if !self.eat(&TokenKind::RightBracket) {
                 ctx.add_diag(Diagnostic::new(
                     String::from("missing `]` after memory operand"),
                     self.current.span(),
