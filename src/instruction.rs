@@ -279,11 +279,6 @@ impl SetSelector {
         set
     }
 
-    pub fn get(&mut self, idx: u8) -> bool {
-        assert!(idx < 4);
-        self.0 & (1 << idx) != 0
-    }
-
     /// gets the bits set in the selector
     pub fn bits(&self) -> u8 {
         self.0

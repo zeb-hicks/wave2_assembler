@@ -75,10 +75,10 @@ impl Span {
     }
 
     pub fn between(low: Span, high: Span) -> Self {
-        assert!(low.low < high.high);
+        assert!(low.low() < high.high());
         Self {
-            low: low.low,
-            high: high.high,
+            low: low.low(),
+            high: high.high(),
         }
     }
 }

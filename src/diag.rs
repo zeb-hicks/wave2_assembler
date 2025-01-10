@@ -110,10 +110,6 @@ impl Diagnostic {
         self
     }
 
-    pub fn msg(&self) -> &str {
-        self.msg.as_str()
-    }
-
     pub fn span(&self) -> Span {
         self.span
     }

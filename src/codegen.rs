@@ -1,5 +1,3 @@
-use log::*;
-
 use crate::instruction::{Instruction, InstructionKind, OpSize, RegSelector, ShiftAmount};
 
 pub fn gen(insts: &[Instruction]) -> Vec<u16> {
@@ -151,7 +149,8 @@ fn shift_op(op: u8, size: OpSize, dst: RegSelector, amount: ShiftAmount) -> u16 
 }
 
 mod opcode {
-    /// NYI
+    /// TODO: implement
+    #[expect(dead_code, reason = "not yet implemented by the assembler")]
     pub(super) const SYSTEM: u8 = 0b0000;
     #[expect(dead_code, reason = "not yet used by the VM")]
     pub(super) const EXTRA1: u8 = 0b0001;
@@ -168,7 +167,8 @@ mod opcode {
     pub(super) const SHIFT8: u8 = 0b1010;
     pub(super) const SHIFT16: u8 = 0b1011;
     pub(super) const BITOP: u8 = 0b1100;
-    /// NYI
+    /// TODO: implement
+    #[expect(dead_code, reason = "not yet implemented by the assembler")]
     pub(super) const SPECOP: u8 = 0b1101;
     #[expect(dead_code, reason = "not yet used by the VM")]
     pub(super) const EXTRA14: u8 = 0b1110;

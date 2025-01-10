@@ -33,7 +33,6 @@ fn main() -> eyre::Result<()> {
     let mut insts = Vec::new();
     loop {
         let inst = parser.parse_inst(&mut ctx);
-        trace!("parsed {:?}", inst);
         match inst {
             Ok(Some(inst)) => insts.push(inst),
             Ok(None) => {
