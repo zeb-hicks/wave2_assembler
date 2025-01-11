@@ -77,12 +77,8 @@ fn main() -> eyre::Result<()> {
         let printer = ArrayPrinter(code.as_slice());
         info!("{:X}", printer);
         if let Some(output) = cli.output {
-            if output.is_dir() {
-                error!("Error writing to file, \"{}\" is a directory", output.display());
-            } else {
-                fs::write(&output, format!("{:X}", printer))?;
-                info!("Wrote compiled hex to \"{}\"", output.display())
-            }
+            fs::write(&output, format!("{:X}", printer)).context("failed to write output file")?;
+            info!("Wrote compiled hex to \"{}\"", output.display())
         }
     }
 
