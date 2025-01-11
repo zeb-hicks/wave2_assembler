@@ -41,7 +41,7 @@ fn main() -> eyre::Result<()> {
         .init()?;
 
     if !cli.input.try_exists()? {
-        error!("File \"{}\" does not exist", cli.input.to_string_lossy());
+        error!("File \"{}\" does not exist", cli.input.display());
         return Ok(());
     }
 
@@ -77,10 +77,10 @@ fn main() -> eyre::Result<()> {
         info!("{:X}", printer);
         if let Some(output) = cli.output {
             if output.is_dir() {
-                error!("Error writing to file, \"{}\" is a directory", output.to_string_lossy());
+                error!("Error writing to file, \"{}\" is a directory", output.display());
             } else {
                 fs::write(&output, format!("{:X}", printer))?;
-                info!("Wrote compiled hex to \"{}\"", output.to_string_lossy())
+                info!("Wrote compiled hex to \"{}\"", output.display())
             }
         }
     }
