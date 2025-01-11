@@ -1,14 +1,15 @@
 #![feature(debug_closure_helpers)]
 
+use clap::Parser as _;
+use eyre::Context as _;
 use log::*;
 
 use diag::Context;
 use parser::Parser;
 use source::Source;
-use util::ArrayPrinter;
-use clap::Parser as CliParser;
 use std::fs;
 use std::path::PathBuf;
+use util::ArrayPrinter;
 
 mod codegen;
 mod diag;
@@ -23,19 +24,19 @@ mod util;
 #[command(about = "WaveVM Assembly Compiler", long_about = None)]
 struct Cli {
     /// Input file path
-    #[arg(short)]
+    #[arg()]
     input: PathBuf,
-    /// Output file path, only logs to stdout if not set 
-    #[arg(short)]
+    /// Output file path, only logs to stdout if not set
+    #[arg(short, long)]
     output: Option<PathBuf>,
     /// Log level, valid values are: OFF, ERROR, WARN, INFO, DEBUG, TRACE
-    #[arg(short, default_value_t = LevelFilter::Info)]
-    log_level: LevelFilter
+    #[arg(short, long, default_value_t = LevelFilter::Info)]
+    log_level: LevelFilter,
 }
 
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
-    let cli = Cli::parse(); 
+    let cli = Cli::parse();
     simple_logger::SimpleLogger::new()
         .with_level(cli.log_level)
         .init()?;
