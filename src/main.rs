@@ -6,6 +6,9 @@ use diag::Context;
 use parser::Parser;
 use source::Source;
 use util::ArrayPrinter;
+use clap::Parser as CliParser;
+use std::fs;
+use std::path::PathBuf;
 
 mod codegen;
 mod diag;
@@ -16,13 +19,33 @@ mod reader;
 mod source;
 mod util;
 
+#[derive(clap::Parser)]
+#[command(about = "WaveVM Assembly Compiler", long_about = None)]
+struct Cli {
+    /// Input file path
+    #[arg(short)]
+    input: PathBuf,
+    /// Output file path, only logs to stdout if not set 
+    #[arg(short)]
+    output: Option<PathBuf>,
+    /// Log level, valid values are: OFF, ERROR, WARN, INFO, DEBUG, TRACE
+    #[arg(short, default_value_t = LevelFilter::Info)]
+    log_level: LevelFilter
+}
+
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
-    simple_logger::SimpleLogger::new().init()?;
+    let cli = Cli::parse(); 
+    simple_logger::SimpleLogger::new()
+        .with_level(cli.log_level)
+        .init()?;
 
-    let filename = "in.txt";
+    if !cli.input.try_exists()? {
+        error!("File \"{}\" does not exist", cli.input.to_string_lossy());
+        return Ok(());
+    }
 
-    let source = Source::new_from_file(filename)?;
+    let source = Source::new_from_file(cli.input)?;
     let mut ctx = Context::new(source);
 
     // TODO: i dont like having to do this, but otherwise it requires self references
@@ -50,7 +73,16 @@ fn main() -> eyre::Result<()> {
     } else {
         debug!("{:#?}", insts);
         let code = codegen::gen(insts.as_slice());
-        info!("{:X}", ArrayPrinter(code.as_slice()));
+        let printer = ArrayPrinter(code.as_slice());
+        info!("{:X}", printer);
+        if let Some(output) = cli.output {
+            if output.is_dir() {
+                error!("Error writing to file, \"{}\" is a directory", output.to_string_lossy());
+            } else {
+                fs::write(&output, format!("{:X}", printer))?;
+                info!("Wrote compiled hex to \"{}\"", output.to_string_lossy())
+            }
+        }
     }
 
     Ok(())
