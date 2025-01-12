@@ -1,10 +1,14 @@
 #![feature(debug_closure_helpers)]
 
+use clap::Parser as _;
+use eyre::Context as _;
 use log::*;
 
 use diag::Context;
 use parser::Parser;
 use source::Source;
+use std::fs;
+use std::path::PathBuf;
 use util::ArrayPrinter;
 
 mod codegen;
@@ -16,13 +20,33 @@ mod reader;
 mod source;
 mod util;
 
+#[derive(clap::Parser)]
+#[command(about = "WaveVM Assembly Compiler", long_about = None)]
+struct Cli {
+    /// Input file path
+    #[arg()]
+    input: PathBuf,
+    /// Output file path, only logs to stdout if not set
+    #[arg(short, long)]
+    output: Option<PathBuf>,
+    /// Log level, valid values are: OFF, ERROR, WARN, INFO, DEBUG, TRACE
+    #[arg(short, long, default_value_t = LevelFilter::Info)]
+    log_level: LevelFilter,
+}
+
 fn main() -> eyre::Result<()> {
     color_eyre::install()?;
-    simple_logger::SimpleLogger::new().init()?;
+    let cli = Cli::parse();
+    simple_logger::SimpleLogger::new()
+        .with_level(cli.log_level)
+        .init()?;
 
-    let filename = "in.txt";
+    if !cli.input.try_exists()? {
+        error!("File \"{}\" does not exist", cli.input.display());
+        return Ok(());
+    }
 
-    let source = Source::new_from_file(filename)?;
+    let source = Source::new_from_file(cli.input)?;
     let mut ctx = Context::new(source);
 
     // TODO: i dont like having to do this, but otherwise it requires self references
@@ -50,7 +74,12 @@ fn main() -> eyre::Result<()> {
     } else {
         debug!("{:#?}", insts);
         let code = codegen::gen(insts.as_slice());
-        info!("{:X}", ArrayPrinter(code.as_slice()));
+        let printer = ArrayPrinter(code.as_slice());
+        info!("{:X}", printer);
+        if let Some(output) = cli.output {
+            fs::write(&output, format!("{:X}", printer)).context("failed to write output file")?;
+            info!("Wrote compiled hex to \"{}\"", output.display())
+        }
     }
 
     Ok(())
