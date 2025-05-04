@@ -25,6 +25,7 @@ impl<'a> Reader<'a> {
 
         let kind = match start_c {
             '#' => self.comment(),
+            ';' => self.comment(),
             '\n' => TokenKind::Newline,
             c if c.is_whitespace() => self.eat_whitespace(),
             c if is_ident_start(c) => self.ident(),
