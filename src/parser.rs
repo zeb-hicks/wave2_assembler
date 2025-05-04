@@ -798,6 +798,8 @@ impl<'a> Parser<'a> {
                 // recover with the invalid selector
             }
 
+            let increment = self.eat(&TokenKind::Plus);
+
             if !self.eat(&TokenKind::RightBracket) {
                 ctx.add_diag(Diagnostic::new(
                     String::from("missing `]` after memory operand"),
@@ -807,7 +809,6 @@ impl<'a> Parser<'a> {
             }
 
             let span_end = self.current.span();
-            let increment = self.eat(&TokenKind::Plus);
             Ok(LoadStoreOp::MemOp(MemoryOperand::new(
                 set.reg(),
                 all,
