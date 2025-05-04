@@ -55,6 +55,30 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
                 opcode::STORE,
             )]
         }
+        WAdd { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.reg().idx(),
+            wselect_ops::WADD | src.selector().bits() << 2,
+            opcode::WSELECT,
+        )],
+        WSub { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.reg().idx(),
+            wselect_ops::WSUB | src.selector().bits() << 2,
+            opcode::WSELECT,
+        )],
+        WSwap { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.reg().idx(),
+            wselect_ops::WSWAP | src.selector().bits() << 2,
+            opcode::WSELECT,
+        )],
+        WMove { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.reg().idx(),
+            wselect_ops::WMOVE | src.selector().bits() << 2,
+            opcode::WSELECT,
+        )],
 
         Add { size, src, dst } => vec![math_op(math_ops::ADD, size, src, dst)],
         AddSaturate { size, src, dst } => vec![math_op(math_ops::ADD_SAT, size, src, dst)],
@@ -152,8 +176,7 @@ mod opcode {
     /// TODO: implement
     #[expect(dead_code, reason = "not yet implemented by the assembler")]
     pub(super) const SYSTEM: u8 = 0b0000;
-    #[expect(dead_code, reason = "not yet used by the VM")]
-    pub(super) const EXTRA1: u8 = 0b0001;
+    pub(super) const WSELECT: u8 = 0b0001;
     #[expect(dead_code, reason = "not yet used by the VM")]
     pub(super) const EXTRA2: u8 = 0b0010;
     #[expect(dead_code, reason = "not yet used by the VM")]
@@ -174,6 +197,13 @@ mod opcode {
     pub(super) const EXTRA14: u8 = 0b1110;
     #[expect(dead_code, reason = "not yet used by the VM")]
     pub(super) const EXTRA15: u8 = 0b1111;
+}
+
+mod wselect_ops {
+    pub(super) const WMOVE: u8 = 0b0000;
+    pub(super) const WSWAP: u8 = 0b0001;
+    pub(super) const WADD: u8 = 0b0010;
+    pub(super) const WSUB: u8 = 0b0011;
 }
 
 mod math_ops {

@@ -17,6 +17,7 @@ impl Instruction {
         &self.kind
     }
 
+    #[allow(dead_code)]
     pub fn span(&self) -> Span {
         self.span
     }
@@ -38,6 +39,26 @@ pub enum InstructionKind {
     Store {
         src: SetRegSelector,
         mem: MemoryOperand,
+    },
+    /// dst.x = src.*
+    WMove {
+        src: SwizzleRegSelector,
+        dst: RegSelector,
+    },
+    /// dst.x <> src.*
+    WSwap {
+        src: SwizzleRegSelector,
+        dst: RegSelector,
+    },
+    /// dst.x = dst.x + src.*
+    WAdd {
+        src: SwizzleRegSelector,
+        dst: RegSelector,
+    },
+    /// dst.x = dst.x - src.*
+    WSub {
+        src: SwizzleRegSelector,
+        dst: RegSelector,
     },
 
     /// dst = src + dst
@@ -208,6 +229,7 @@ impl RegSelector {
     }
 
     /// returns `true` if the register is a const register, otherwise `false``.
+    #[allow(dead_code)]
     pub fn is_const(&self) -> bool {
         self.idx <= MAX_REG_IDX
     }

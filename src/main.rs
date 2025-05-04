@@ -9,7 +9,7 @@ use parser::Parser;
 use source::Source;
 use std::fs;
 use std::path::PathBuf;
-use util::ArrayPrinter;
+use util::CodePrinter;
 
 mod codegen;
 mod diag;
@@ -74,10 +74,10 @@ fn main() -> eyre::Result<()> {
     } else {
         debug!("{:#?}", insts);
         let code = codegen::gen(insts.as_slice());
-        let printer = ArrayPrinter(code.as_slice());
-        info!("{:X}", printer);
+        let printer = CodePrinter(code.as_slice());
+        info!("{:x}", printer);
         if let Some(output) = cli.output {
-            fs::write(&output, format!("{:X}", printer)).context("failed to write output file")?;
+            fs::write(&output, format!("{:x}", printer)).context("failed to write output file")?;
             info!("Wrote compiled hex to \"{}\"", output.display())
         }
     }

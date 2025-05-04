@@ -42,6 +42,11 @@ impl<'a> Parser<'a> {
                 "mov" => self.parse_move(ctx)?,
                 "swizzle" => self.parse_swizzle(ctx)?,
 
+                "wmove" => self.parse_wselect(ctx, WSelectMode::Move)?,
+                "wswap" => self.parse_wselect(ctx, WSelectMode::Swap)?,
+                "wadd" => self.parse_wselect(ctx, WSelectMode::Add)?,
+                "wsub" => self.parse_wselect(ctx, WSelectMode::Sub)?,
+
                 // =========
                 // math ops
                 // =========
@@ -181,6 +186,46 @@ impl<'a> Parser<'a> {
         Ok(Instruction::new(
             InstructionKind::Swizzle { reg: dst },
             Span::between(span_start, dst.span()),
+        ))
+    }
+
+    fn parse_wselect(&mut self, ctx: &mut Context, mode: WSelectMode) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
+        self.bump();
+
+        let dst = self.parse_reg().unwrap_or_else(|d| {
+            ctx.add_diag(d);
+            // use a dummy selector to allow recovery
+            RegSelector::new_gpr(0, Span::DUMMY)
+        });
+
+        if !self.eat(&TokenKind::Comma) {
+            ctx.add_diag(Diagnostic::new(
+                String::from("missing comma between dst and src"),
+                self.current.span(),
+            ));
+            // allow recovery by not returning
+        }
+
+        let src = self.parse_swizzle_single_reg(ctx)?;
+        // the src must be a readable register
+        if !src.reg().is_gpr() && !src.reg().is_const() {
+            ctx.add_diag(Diagnostic::new(
+                format!("expected src to be a readable register, got {}", src.reg()),
+                src.span(),
+            ));
+        }
+
+        let kind = match mode {
+            WSelectMode::Move => InstructionKind::WMove { src, dst },
+            WSelectMode::Swap => InstructionKind::WSwap { src, dst },
+            WSelectMode::Add => InstructionKind::WAdd { src, dst },
+            WSelectMode::Sub => InstructionKind::WSub { src, dst },
+        };
+
+        Ok(Instruction::new(
+            kind,
+            Span::between(span_start, src.span()),
         ))
     }
 
@@ -781,15 +826,22 @@ impl<'a> Parser<'a> {
             ctx.add_diag(d);
         })?;
 
-        if !self.eat(&TokenKind::Dot) {
-            ctx.add_diag(Diagnostic::new(
-                String::from("expected a `.` between a register name and its element selector"),
-                self.current.span(),
-            ));
-            return Err(());
-        }
+        // if !self.eat(&TokenKind::Dot) {
+        //     // Assume xyzw as default
+        //     ctx.add_diag(Diagnostic::new(
+        //         String::from("expected a `.` between a register name and its element selector"),
+        //         self.current.span(),
+        //     ));
+        //     return Err(());
+        // }
 
-        let selector = self.parse_set_selector(ctx, select_mode)?;
+        let selector;
+        if self.eat(&TokenKind::Dot) {
+            selector = self.parse_set_selector(ctx, select_mode)?;
+        } else {
+            // Assume xyzw as default
+            selector = SetSelector::from_bits(0b1111, reg.span());
+        }
 
         Ok(SetRegSelector::new(
             reg,
@@ -812,6 +864,28 @@ impl<'a> Parser<'a> {
         }
 
         let selector = self.parse_swizzle_selector(ctx)?;
+
+        Ok(SwizzleRegSelector::new(
+            reg,
+            selector,
+            Span::between(reg.span(), selector.span()),
+        ))
+    }
+
+    fn parse_swizzle_single_reg(&mut self, ctx: &mut Context) -> Result<SwizzleRegSelector, ()> {
+        let reg = self.parse_reg().map_err(|d| {
+            ctx.add_diag(d);
+        })?;
+
+        if !self.eat(&TokenKind::Dot) {
+            ctx.add_diag(Diagnostic::new(
+                String::from("expected a `.` between a register name and its element selector"),
+                self.current.span(),
+            ));
+            return Err(());
+        }
+
+        let selector = self.parse_swizzle_single(ctx)?;
 
         Ok(SwizzleRegSelector::new(
             reg,
@@ -941,6 +1015,45 @@ impl<'a> Parser<'a> {
         Ok(selector)
     }
 
+    fn parse_swizzle_single(&mut self, ctx: &mut Context) -> Result<SwizzleSelector, ()> {
+        let select_str = self
+            .expect_ident()
+            .unwrap_or_else(|d| {
+                ctx.add_diag(d.with_note(String::from("expected a register selector")));
+                String::new()
+            })
+            .to_ascii_lowercase();
+        let ident_span = self.current.span();
+
+        self.bump();
+        if select_str.len() > 1 {
+            ctx.add_diag(Diagnostic::new(
+                String::from("too many selectors"),
+                ident_span,
+            ));
+            return Err(());
+        }
+
+        let mut selector = SwizzleSelector::empty(ident_span);
+        for (idx, c) in select_str.chars().enumerate() {
+            match c {
+                'x' => selector.set(idx as u8, 0b00),
+                'y' => selector.set(idx as u8, 0b01),
+                'z' => selector.set(idx as u8, 0b10),
+                'w' => selector.set(idx as u8, 0b11),
+                _ => {
+                    ctx.add_diag(Diagnostic::new(
+                        String::from("invalid register selector"),
+                        ident_span,
+                    ));
+                    return Err(());
+                }
+            }
+        }
+
+        Ok(selector)
+    }
+
     fn bump(&mut self) {
         let current = self.lexer.next_token();
         self.current = current;
@@ -993,6 +1106,14 @@ enum SelectorMode {
     Ordered,
     /// selector must start with an X selector and contain sequential selectors
     SquentialXStart,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WSelectMode {
+    Move,
+    Swap,
+    Add,
+    Sub,
 }
 
 #[derive(Debug, Clone, Copy)]
