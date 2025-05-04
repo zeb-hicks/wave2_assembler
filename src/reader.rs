@@ -7,6 +7,7 @@ pub struct Reader<'a> {
     chars: Chars<'a>,
     // the number of characters remaining in `source` at the start of the current token
     len_at_start: usize,
+    inside_literal: bool,
 }
 
 impl<'a> Reader<'a> {
@@ -15,6 +16,7 @@ impl<'a> Reader<'a> {
         Self {
             chars: src.chars(),
             len_at_start,
+            inside_literal: false,
         }
     }
 
@@ -23,10 +25,35 @@ impl<'a> Reader<'a> {
             return Token::new(TokenKind::EoF, 0);
         };
 
+        if self.inside_literal && start_c != '\n' {
+            println!("Inside literal");
+            println!("Start char: {:?}", start_c);
+
+            let mut i = 1;
+            self.eat_while(move |c| {
+                i += 1;
+                match (i, c) {
+                    (1..=4, '0'..='9') => true,
+                    (1..=4, 'a'..='f') => true,
+                    (1..=4, 'A'..='F') => true,
+                    _ => false,
+                }
+            });
+            // self.eat_while(|c: char| !c.is_ascii_hexdigit());
+            // self.eat_whitespace();
+            println!("Char count: {}", self.token_len());
+            let token = Token::new(TokenKind::Raw, self.token_len());
+            self.reset_len();
+            return token;
+        } else {
+            self.inside_literal = false;
+        }
+
         let kind = match start_c {
             '#' => self.comment(),
             ';' => self.comment(),
-            '\n' => TokenKind::Newline,
+            '!' => self.literal(),
+            '\n' => self.newline(),
             c if c.is_whitespace() => self.eat_whitespace(),
             c if is_ident_start(c) => self.ident(),
 
@@ -50,6 +77,17 @@ impl<'a> Reader<'a> {
     fn comment(&mut self) -> TokenKind {
         self.eat_while(|c| c != '\n');
         TokenKind::Comment
+    }
+
+    fn literal(&mut self) -> TokenKind {
+        self.inside_literal = true;
+        TokenKind::Literal
+    }
+
+    fn newline(&mut self) -> TokenKind {
+        self.eat_while(|c| c == '\n');
+        self.inside_literal = false;
+        TokenKind::Newline
     }
 
     fn eat_whitespace(&mut self) -> TokenKind {
@@ -127,4 +165,6 @@ pub enum TokenKind {
     Plus,
     Ident,
     Number,
+    Literal,
+    Raw,
 }

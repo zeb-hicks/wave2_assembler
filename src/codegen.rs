@@ -145,6 +145,7 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
             opcode::BITOP,
         )],
         UnaryBitNot { dst } => vec![op_from_parts(dst.idx(), 0, bit_ops::NOT_DST, opcode::BITOP)],
+        Raw { val } => vec![val],
     }
 }
 

@@ -172,6 +172,10 @@ pub enum InstructionKind {
         dst: RegSelector,
     },
     // TODO: System, SpecOp
+
+    Raw {
+        val: u16,
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

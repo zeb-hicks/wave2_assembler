@@ -39,6 +39,14 @@ impl<'a> Lexer<'a> {
                         .parse()
                         .expect("lexed number literals should be valid"),
                 ),
+                reader::TokenKind::Literal => Literal,
+                reader::TokenKind::Raw => {
+                    let s = self.src[start_pos..self.pos].to_string();
+                    println!("raw: {}", s);
+                    let raw = u16::from_str_radix(&s, 16)
+                        .expect("lexed raw literals should be valid");
+                    Raw(raw)
+                }
                 reader::TokenKind::EoF => EoF,
                 reader::TokenKind::Comma => Comma,
                 reader::TokenKind::Dot => Dot,
@@ -114,6 +122,8 @@ pub enum TokenKind {
     Plus,
     Ident(String),
     Number(u16),
+    Literal,
+    Raw(u16),
 }
 
 impl Display for TokenKind {
@@ -128,6 +138,8 @@ impl Display for TokenKind {
             TokenKind::Plus => write!(f, "+"),
             TokenKind::Ident(s) => write!(f, "{}", s),
             TokenKind::Number(val) => write!(f, "{}", val),
+            TokenKind::Literal => write!(f, "!"),
+            TokenKind::Raw(val) => write!(f, "0x{:04x}", val),
         }
     }
 }

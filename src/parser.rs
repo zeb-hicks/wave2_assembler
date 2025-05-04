@@ -34,6 +34,15 @@ impl<'a> Parser<'a> {
             return Ok(None);
         }
 
+        if self.current.kind() == &TokenKind::Literal {
+            // Literals are inserted directly into the instruction 
+            self.bump();
+        }
+
+        if matches!(self.current.kind(), TokenKind::Raw(_)) {
+            return Ok(Some(self.parse_literal_raw(ctx)?));
+        }
+
         let span_start = self.current.span();
         let mut inner = || {
             let inst = self.expect_ident().map_err(|d| ctx.add_diag(d))?;
@@ -101,6 +110,48 @@ impl<'a> Parser<'a> {
         }
 
         ret
+    }
+
+    fn parse_literal_raw(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
+        // self.bump();
+
+        match self.current.kind() {
+            TokenKind::Raw(val) => {
+                let val = *val;
+                self.bump();
+                Ok(Instruction::new(
+                    InstructionKind::Raw { val },
+                    Span::between(span_start, self.current.span()),
+                ))
+            },
+            _ => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from(format!("expected raw value, got {:?}", self.current.kind())),
+                    self.current.span(),
+                ));
+
+                Ok(Instruction::new(
+                    InstructionKind::Raw { val: 0 },
+                    Span::between(span_start, self.current.span()),
+                ))
+            }
+        }
+        
+        // let val = match self.current.kind() {
+        //     TokenKind::Raw(val) => *val,
+        //     _ => {
+        //         ctx.add_diag(Diagnostic::new(
+        //             String::from(format!("expected raw value, got {:?}", self.current.kind())),
+        //             self.current.span(),
+        //         ));
+        //         return Err(());
+        //     }
+        // };
+        // return Ok(Instruction::new(
+        //     InstructionKind::Raw { val: val },
+        //     Span::between(span_start, self.current.span()),
+        // ));
     }
 
     fn parse_move(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
