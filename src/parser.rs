@@ -137,21 +137,6 @@ impl<'a> Parser<'a> {
                 ))
             }
         }
-        
-        // let val = match self.current.kind() {
-        //     TokenKind::Raw(val) => *val,
-        //     _ => {
-        //         ctx.add_diag(Diagnostic::new(
-        //             String::from(format!("expected raw value, got {:?}", self.current.kind())),
-        //             self.current.span(),
-        //         ));
-        //         return Err(());
-        //     }
-        // };
-        // return Ok(Instruction::new(
-        //     InstructionKind::Raw { val: val },
-        //     Span::between(span_start, self.current.span()),
-        // ));
     }
 
     fn parse_move(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {

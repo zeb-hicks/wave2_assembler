@@ -26,9 +26,6 @@ impl<'a> Reader<'a> {
         };
 
         if self.inside_literal && start_c != '\n' {
-            println!("Inside literal");
-            println!("Start char: {:?}", start_c);
-
             let mut i = 1;
             self.eat_while(move |c| {
                 i += 1;
@@ -39,9 +36,6 @@ impl<'a> Reader<'a> {
                     _ => false,
                 }
             });
-            // self.eat_while(|c: char| !c.is_ascii_hexdigit());
-            // self.eat_whitespace();
-            println!("Char count: {}", self.token_len());
             let token = Token::new(TokenKind::Raw, self.token_len());
             self.reset_len();
             return token;

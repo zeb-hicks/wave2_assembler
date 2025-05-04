@@ -42,7 +42,6 @@ impl<'a> Lexer<'a> {
                 reader::TokenKind::Literal => Literal,
                 reader::TokenKind::Raw => {
                     let s = self.src[start_pos..self.pos].to_string();
-                    println!("raw: {}", s);
                     let raw = u16::from_str_radix(&s, 16)
                         .expect("lexed raw literals should be valid");
                     Raw(raw)
