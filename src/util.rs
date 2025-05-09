@@ -26,12 +26,12 @@ impl<'a> LowerHex for CodePrinter<'a> {
         let it = self.0.iter();
         for item in it {
             write!(f, "{item:04x}")?;
-            if count % 8 == 7 {
+            count += 1;
+            if count % 16 == 0 {
                 write!(f, "\n")?;
             } else {
                 write!(f, " ")?;
             }
-            count += 1;
         }
 
         Ok(())

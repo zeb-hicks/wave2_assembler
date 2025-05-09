@@ -26,11 +26,17 @@ struct Cli {
     /// Input file path
     #[arg()]
     input: PathBuf,
+    /// Memory descriptor file path, describes the contents of 0x00->0x3f
+    #[arg(short, long)]
+    memory: Option<PathBuf>,
     /// Output file path, only logs to stdout if not set
     #[arg(short, long)]
     output: Option<PathBuf>,
+    /// Output in binary format
+    #[arg(short, long, default_value_t = false)]
+    binary: bool,
     /// Log level, valid values are: OFF, ERROR, WARN, INFO, DEBUG, TRACE
-    #[arg(short, long, default_value_t = LevelFilter::Info)]
+    #[arg(short, long, default_value_t = LevelFilter::Warn)]
     log_level: LevelFilter,
 }
 
@@ -77,10 +83,62 @@ fn main() -> eyre::Result<()> {
         let printer = CodePrinter(code.as_slice());
         info!("{:x}", printer);
         if let Some(output) = cli.output {
-            fs::write(&output, format!("{:x}", printer)).context("failed to write output file")?;
-            info!("Wrote compiled hex to \"{}\"", output.display())
+            if cli.binary {
+                if let Some(mem) = cli.memory {
+                    let mem = fs::read_to_string(mem).context("failed to read memory file")?;
+                    let mem = parse_mem(mem);
+                    let mut header = vec!['M' as u8, 'E' as u8, 'I' as u8, 0x00, 0x00];
+                    let memlen = mem.len().min(60) as u8;
+                    header[3] = header.len() as u8;
+                    header[4] = memlen + header[3];
+                    let code = code
+                        .iter()
+                        .flat_map(|&x| x.to_be_bytes());
+                    let buffer = header
+                        .into_iter()
+                        .chain(mem)
+                        .chain(code)
+                        .collect::<Vec<u8>>();
+                    fs::write(&output, buffer).context("failed to write output file")?;
+                } else {
+                    let mut header = vec!['M' as u8, 'E' as u8, 'I' as u8, 0x00, 0x00];
+                    header[3] = header.len() as u8;
+                    header[4] = header.len() as u8;
+                    let codebytes = code
+                        .iter()
+                        .flat_map(|&x| x.to_be_bytes())
+                        .collect::<Vec<u8>>();
+                    let buffer = header
+                        .into_iter()
+                        .chain(codebytes)
+                        .collect::<Vec<u8>>();
+                    fs::write(&output, buffer).context("failed to write output file")?;
+                }
+                info!("Wrote compiled binary to \"{}\"", output.display())
+            } else {
+                fs::write(&output, format!("{:x}", printer)).context("failed to write output file")?;
+                info!("Wrote compiled hex to \"{}\"", output.display())
+            }
         }
     }
 
     Ok(())
+}
+
+fn parse_mem(mem: String) -> Vec<u8> {
+    // Collect all the non-whitespace characters.
+    let chars = mem.chars().filter(|c| !c.is_whitespace());
+    // Convert the characters to u8 
+    let mut out: Vec<u8> = Vec::new();
+    let mut buffer: u8 = 0;
+    let mut k = 0;
+    for c in chars {
+        buffer = buffer << 4;
+        buffer |= c.to_digit(16).unwrap() as u8;
+        k = k ^ 0x1;
+        if k == 0 {
+            out.push(buffer);
+        }
+    }
+    out
 }
