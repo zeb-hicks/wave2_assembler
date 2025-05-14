@@ -1,111 +1,111 @@
-# ====== sub ======
-sub.b r0, r0, r1        # r0 = r0 - r1
-sub.b r2, r3, r2        # r2 = r3 - r2
-#sub.b r6, r5, r4        # invalid
+; ====== sub ======
+sub.b r0, r0, r1        ; r0 = r0 - r1
+sub.b r2, r3, r2        ; r2 = r3 - r2
+;sub.b r6, r5, r4        ; invalid
 
-# ====== sub_sat ======
-sub_sat.b r0, r0, r1    # r0 = r0 - r1
-sub_sat.b r2, r3, r2    # r2 = r3 - r2
-#sub_sat.b r6, r5, r4    # invalid
+; ====== sub_sat ======
+subs.b r0, r0, r1    ; r0 = r0 - r1
+subs.b r2, r3, r2    ; r2 = r3 - r2
+;subs.b r6, r5, r4    ; invalid
 
-# ====== add ======
-add.b r0, r0, r1        # r0 = r0 + r1
-add.b r0, r1, r0        # r0 = r1 + r0
-#add.b r4, r5, r6        # invalid
+; ====== add ======
+add.b r0, r0, r1        ; r0 = r0 + r1
+add.b r0, r1, r0        ; r0 = r1 + r0
+;add.b r4, r5, r6        ; invalid
 
-# ====== add_sat ======
-add_sat.b r0, r0, r1    # r0 = r0 + r1
-add_sat.b r0, r1, r0    # r0 = r1 + r0
-#add_sat.b r4, r5, r6    # invalid
+; ====== add_sat ======
+adds.b r0, r0, r1    ; r0 = r0 + r1
+adds.b r0, r1, r0    ; r0 = r1 + r0
+;adds.b r4, r5, r6    ; invalid
 
-# ====== cmp ======
-## == eq ==
-cmpeq.b r0, r0, r1      # r0 = r0 == r1
-cmpeq.b r0, r1, r0      # r0 = r1 == r1
-#cmpeq.b r4, r5, r6      # invalid
+; ====== cmp ======
+;; == eq ==
+eq.b r0, r0, r1      ; r0 = r0 == r1
+eq.b r0, r1, r0      ; r0 = r1 == r1
+;eq.b r4, r5, r6      ; invalid
 
-## == ne ==
-cmpneq.b r0, r0, r1      # r0 = r0 != r1
-cmpneq.b r0, r1, r0      # r0 = r1 != r0
-#cmpneq.b r4, r5, r6      # invalid
+;; == ne ==
+neq.b r0, r0, r1      ; r0 = r0 != r1
+neq.b r0, r1, r0      ; r0 = r1 != r0
+;neq.b r4, r5, r6      ; invalid
 
-###### TODO: re-implement the carry-like compares and adds
+;;;;;; TODO: re-implement the carry-like compares and adds
 
-# ====== mov ======
-mov r0.xyzw, r1.xyzw     # register to register move
-mov r0.xy, r1.xy         # register to register move (masked)
-mov [r0.x]+, r1.xyzw     # register to memory move
-mov r3.xy, [r0.xyzw]     # memory to register move
+; ====== mov ======
+mov r0.xyzw, r1.xyzw     ; register to register move
+mov r0.xy, r1.xy         ; register to register move (masked)
+mov [r0.x]+, r1.xyzw     ; register to memory move
+mov r3.xy, [r0.xyzw]     ; memory to register move
 
 swizzle r2.yxwz
 
 lsl.w r4, 5
-asl.b r4, 5 # alias for lsl
+asl.b r4, 5 ; alias for lsl
 rol.b r4, r0
 asr.w r4, r0
 lsr.w r4, r0
 ror.w r4, 5
 
-# TODO: maybe implement mov 1, reg and mov 0, reg as bitop w/ zero and one operations?
+; TODO: maybe implement mov 1, reg and mov 0, reg as bitop w/ zero and one operations?
 
-# ====== bitops ======
-and r0, c0               # r0 = r0 & c0
-or r2, r3                # r2 = r2 | r3
-xor r2, r3               # r2 = r2 ^ r3
-nand r2, r3              # r2 = not (r2 & r3)
-nor r2, r3               # r2 = not (r2 | r3)
-xnor r2, r3              # r2 = not (r2 ^ r3)
-not r3                   # r3 = !r3
-# TODO: how to express dst = notsrc?
+; ====== bitops ======
+and r0, c0               ; r0 = r0 & c0
+or r2, r3                ; r2 = r2 | r3
+xor r2, r3               ; r2 = r2 ^ r3
+nand r2, r3              ; r2 = not (r2 & r3)
+nor r2, r3               ; r2 = not (r2 | r3)
+xnor r2, r3              ; r2 = not (r2 ^ r3)
+not r3                   ; r3 = !r3
+; TODO: how to express dst = notsrc?
 
 
 
-# test program courtesy of nichepenguin: https://pub.colonq.computer/~nichepenguin/community/community.html#meivm-details
-#      x    y    z    w
-#c0 0000 A7F4 5ECB 0600 - colormap
-#c1 0838 0840 08b8 08c0 - starting address (0800 0808 0880 0888 left)
-#c2 0003 0003 0003 0003 - colormap mask (0b11)
-#c3 0100 0100 0100 0100 - line address increment (256, two lines of 128x64)
-#c4 0001 0000 0000 0000 - 1 | 0 | 0 | 0 (line increment)
-#c5 0041 0000 0000 0000 - image data start
-#c6 0064 0000 0000 0000 - program start 
+; test program courtesy of nichepenguin: https://pub.colonq.computer/~nichepenguin/community/community.html;meivm-details
+;      x    y    z    w
+;c0 0000 A7F4 5ECB 0600 - colormap
+;c1 0838 0840 08b8 08c0 - starting address (0800 0808 0880 0888 left)
+;c2 0003 0003 0003 0003 - colormap mask (0b11)
+;c3 0100 0100 0100 0100 - line address increment (256, two lines of 128x64)
+;c4 0001 0000 0000 0000 - 1 | 0 | 0 | 0 (line increment)
+;c5 0041 0000 0000 0000 - image data start
+;c6 0064 0000 0000 0000 - program start
 
-# === header code ===
+; === header code ===
 
-#mov r7.x, c6.x
+;mov r7.x, c6.x
 
-# === main code ===
-# == main loop start ==
-swizzle r7.xyzx           # :W restart
-mov r2.xyzw, c1.xyzw      # r2 - current draw line addr
-mov r3.xyzw, c5.xyzw      # r3 - current image data addr
-lsr.w r4, 15              # r4 - clear line counter 
-# == line loop start ==
-swizzle r7.xyxw           # :Z lines
-mov r0.xyzw, [r3.x]+      # r0 - image data addres, increment for the next iteration
-mov r1.xyzw, r2.xyzw      # r1 - current pixel target address
-# == pixel loop start ==
-swizzle r7.xxzw           # :Y pixels
-mov r5.xyzw, r0.xyzw      # r5 - pixel data
-and r5, c2                # apply mask - get color indexes
-mov r6.xyzw, [r5.xyzw]    # r6 - color data [freeing r5]
-mov [r1.xyzw]+, r6.xyzw   # draw and increment pixel target address [freeing r6]
-rol.w r0, 2               # roll image data to the next pixel
-# linebreak test
-mov r6.xyzw, r1.xyzw      # r6 - test result
-sub.w r6, r6, r2          # subtract line start address from current pixel address
-lsr.w r6, 3               # right-shift counter (1000 -> 0001, other -> 0000)
-mov r6.yzw, c4.yzw        # zero-out yzw of a jump increment
-add.w r7, r7, r6          # jump over if test is true [freeing r6]
-swizzle r7.yyzw           # jump to :Y => next pixel
-# == pixel loop end ==
-add.w r2, r2, c3          # increment line addr 
-add.w r4, r4, c4          # increment line counter
-# restart test
-mov r6.xyzw, r4.xyzw      # r6 - test result
-lsr.w r6, 3               # right-shift counter to get the jump (1000 -> 0001, other -> 0000)
-add.w r7, r7, r6          # jump over if test is true [freeing r6]
-swizzle r7.zyzw           # jump to :Z => next line
-# == line loop end ==
-swizzle r7.wyzw           # jump to :W => restart
-# == main loop end
+; === main code ===
+; == main loop start ==
+swizzle r7.xyzx           ; :W restart
+mov r2.xyzw, c1.xyzw      ; r2 - current draw line addr
+mov r3.xyzw, c5.xyzw      ; r3 - current image data addr
+lsr.w r4, 15              ; r4 - clear line counter
+; == line loop start ==
+swizzle r7.xyxw           ; :Z lines
+mov r0.xyzw, [r3.x]+      ; r0 - image data addres, increment for the next iteration
+mov r1.xyzw, r2.xyzw      ; r1 - current pixel target address
+; == pixel loop start ==
+swizzle r7.xxzw           ; :Y pixels
+mov r5.xyzw, r0.xyzw      ; r5 - pixel data
+and r5, c2                ; apply mask - get color indexes
+mov r6.xyzw, [r5.xyzw]    ; r6 - color data [freeing r5]
+mov [r1.xyzw]+, r6.xyzw   ; draw and increment pixel target address [freeing r6]
+rol.w r0, 2               ; roll image data to the next pixel
+; linebreak test
+mov r6.xyzw, r1.xyzw      ; r6 - test result
+sub.w r6, r6, r2          ; subtract line start address from current pixel address
+lsr.w r6, 3               ; right-shift counter (1000 -> 0001, other -> 0000)
+mov r6.yzw, c4.yzw        ; zero-out yzw of a jump increment
+add.w r7, r7, r6          ; jump over if test is true [freeing r6]
+swizzle r7.yyzw           ; jump to :Y => next pixel
+; == pixel loop end ==
+add.w r2, r2, c3          ; increment line addr
+add.w r4, r4, c4          ; increment line counter
+; restart test
+mov r6.xyzw, r4.xyzw      ; r6 - test result
+lsr.w r6, 3               ; right-shift counter to get the jump (1000 -> 0001, other -> 0000)
+add.w r7, r7, r6          ; jump over if test is true [freeing r6]
+swizzle r7.zyzw           ; jump to :Z => next line
+; == line loop end ==
+swizzle r7.wyzw           ; jump to :W => restart
+; == main loop end
