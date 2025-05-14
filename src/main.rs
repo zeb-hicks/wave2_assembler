@@ -87,10 +87,10 @@ fn main() -> eyre::Result<()> {
                 if let Some(mem) = cli.memory {
                     let mem = fs::read_to_string(mem).context("failed to read memory file")?;
                     let mem = parse_mem(mem);
-                    let mut header = vec!['M' as u8, 'E' as u8, 'I' as u8, 0x00, 0x00];
+                    let mut header = b"MWvm\x01\0\0".to_vec();
                     let memlen = mem.len().min(60) as u8;
-                    header[3] = header.len() as u8;
-                    header[4] = memlen + header[3];
+                    header[5] = header.len() as u8;
+                    header[6] = memlen + header[5];
                     let code = code
                         .iter()
                         .flat_map(|&x| x.to_be_bytes());
@@ -101,9 +101,9 @@ fn main() -> eyre::Result<()> {
                         .collect::<Vec<u8>>();
                     fs::write(&output, buffer).context("failed to write output file")?;
                 } else {
-                    let mut header = vec!['M' as u8, 'E' as u8, 'I' as u8, 0x00, 0x00];
-                    header[3] = header.len() as u8;
-                    header[4] = header.len() as u8;
+                    let mut header = b"MWvm\x01\0\0".to_vec();
+                    header[5] = header.len() as u8;
+                    header[6] = header.len() as u8;
                     let codebytes = code
                         .iter()
                         .flat_map(|&x| x.to_be_bytes())
@@ -128,14 +128,14 @@ fn main() -> eyre::Result<()> {
 fn parse_mem(mem: String) -> Vec<u8> {
     // Collect all the non-whitespace characters.
     let chars = mem.chars().filter(|c| !c.is_whitespace());
-    // Convert the characters to u8 
+    // Convert the characters to u8
     let mut out: Vec<u8> = Vec::new();
     let mut buffer: u8 = 0;
     let mut k = 0;
     for c in chars {
-        buffer = buffer << 4;
+        buffer <<= 4;
         buffer |= c.to_digit(16).unwrap() as u8;
-        k = k ^ 0x1;
+        k ^= 0x1;
         if k == 0 {
             out.push(buffer);
         }
