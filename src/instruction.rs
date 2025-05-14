@@ -25,157 +25,88 @@ impl Instruction {
 
 #[derive(Debug, Clone, Copy)]
 pub enum InstructionKind {
-    Move {
-        src: SetRegSelector,
-        dst: SetRegSelector,
-    },
-    Swizzle {
-        reg: SwizzleRegSelector,
-    },
-    Load {
-        mem: MemoryOperand,
-        dst: SetRegSelector,
-    },
-    Store {
-        src: SetRegSelector,
-        mem: MemoryOperand,
-    },
+    Nop,
+    Halt,
+    Sleep { ticks: u8, },
+    Sleep8L { src: RegSelector, },
+    Sleep8H { src: RegSelector, },
+    Sleep16 { src: RegSelector, },
+    Move { src: SetRegSelector, dst: SetRegSelector, },
+    Swizzle { reg: SwizzleRegSelector, },
+    Load { mem: MemoryOperand, dst: SetRegSelector, },
+    Store { src: SetRegSelector, mem: MemoryOperand, },
     /// dst.x = src.*
-    WMove {
-        src: SwizzleRegSelector,
-        dst: RegSelector,
-    },
+    WMove { src: SwizzleRegSelector, dst: RegSelector, },
     /// dst.x <> src.*
-    WSwap {
-        src: SwizzleRegSelector,
-        dst: RegSelector,
-    },
+    WSwap { src: SwizzleRegSelector, dst: RegSelector, },
     /// dst.x = dst.x + src.*
-    WAdd {
-        src: SwizzleRegSelector,
-        dst: RegSelector,
-    },
+    WAdd { src: SwizzleRegSelector, dst: RegSelector, },
     /// dst.x = dst.x - src.*
-    WSub {
-        src: SwizzleRegSelector,
-        dst: RegSelector,
-    },
+    WSub { src: SwizzleRegSelector, dst: RegSelector, },
 
     /// dst = src + dst
-    Add {
-        size: OpSize,
-        src: RegSelector,
-        dst: RegSelector,
-    },
+    Add { size: OpSize, src: RegSelector, dst: RegSelector, },
     /// dst = src - dst
-    Sub {
-        size: OpSize,
-        src: RegSelector,
-        dst: RegSelector,
-    },
+    Sub { size: OpSize, src: RegSelector, dst: RegSelector, },
     /// dst = dst - src
-    SubRev {
-        size: OpSize,
-        src: RegSelector,
-        dst: RegSelector,
-    },
+    RSub { size: OpSize, src: RegSelector, dst: RegSelector, },
     /// dst = src == dst
-    CmpEq {
-        size: OpSize,
-        src: RegSelector,
-        dst: RegSelector,
-    },
+    Eq { size: OpSize, src: RegSelector, dst: RegSelector, },
+    /// dst = Carry(src + dst)
+    Carry { size: OpSize, src: RegSelector, dst: RegSelector, },
+    /// dst = Carry(src - dst)
+    LessU { size: OpSize, src: RegSelector, dst: RegSelector, },
+    /// dst = Carry(dst - src)
+    GreaterU { size: OpSize, src: RegSelector, dst: RegSelector, },
     /// dst = src != dst
-    CmpNeq {
-        size: OpSize,
-        src: RegSelector,
-        dst: RegSelector,
-    },
-
+    NotEq { size: OpSize, src: RegSelector, dst: RegSelector, },
     /// dst = src + dst
-    AddSaturate {
-        size: OpSize,
-        src: RegSelector,
-        dst: RegSelector,
-    },
+    AddSaturate { size: OpSize, src: RegSelector, dst: RegSelector, },
     /// dst = src - dst
-    SubSaturate {
-        size: OpSize,
-        src: RegSelector,
-        dst: RegSelector,
-    },
+    SubSaturate { size: OpSize, src: RegSelector, dst: RegSelector, },
     /// dst = dst - src
-    SubRevSaturate {
-        size: OpSize,
-        src: RegSelector,
-        dst: RegSelector,
-    },
+    SubRevSaturate { size: OpSize, src: RegSelector, dst: RegSelector, },
+    // dst = Carry(src - dest)
+    GreaterEqU { size: OpSize, src: RegSelector, dst: RegSelector, },
+    // dst = Over(src + dest)
+    AddOver { size: OpSize, src: RegSelector, dst: RegSelector, },
+    // dst = Over(src - dest)
+    SubOver { size: OpSize, src: RegSelector, dst: RegSelector, },
+    // dst = Over(dest - src)
+    RSubOver { size: OpSize, src: RegSelector, dst: RegSelector, },
+    // dst = Carry(dest - src)
+    LessEqU { size: OpSize, src: RegSelector, dst: RegSelector, },
 
     // =================
     // SHIFTS
     // =================
-    ShiftLeft {
-        size: OpSize,
-        dst: RegSelector,
-        amount: ShiftAmount,
-    },
-    ShiftRightLogical {
-        size: OpSize,
-        dst: RegSelector,
-        amount: ShiftAmount,
-    },
-    ShiftRightArithmetic {
-        size: OpSize,
-        dst: RegSelector,
-        amount: ShiftAmount,
-    },
-    RotateLeft {
-        size: OpSize,
-        dst: RegSelector,
-        amount: ShiftAmount,
-    },
-    RotateRight {
-        size: OpSize,
-        dst: RegSelector,
-        amount: ShiftAmount,
-    },
+    ShiftLeft { size: OpSize, dst: RegSelector, amount: ShiftAmount, },
+    ShiftRightLogical { size: OpSize, dst: RegSelector, amount: ShiftAmount, },
+    ShiftRightArithmetic { size: OpSize, dst: RegSelector, amount: ShiftAmount, },
+    RotateLeft { size: OpSize, dst: RegSelector, amount: ShiftAmount, },
+    RotateRight { size: OpSize, dst: RegSelector, amount: ShiftAmount, },
+
+    HorizontalAdd { src: RegSelector, dst: RegSelector, },
+    MultiplySaturate { src: RegSelector, dst: RegSelector, },
+    MultiplyLow { src: RegSelector, dst: RegSelector, },
+    MultiplyHigh { src: RegSelector, dst: RegSelector, },
+    Divide { src: RegSelector, dst: RegSelector, },
+    ReciprocalDivide { src: RegSelector, dst: RegSelector, },
 
     // =================
     // BITOPS
     // =================
-    BitAnd {
-        src: RegSelector,
-        dst: RegSelector,
-    },
-    BitOr {
-        src: RegSelector,
-        dst: RegSelector,
-    },
-    BitXor {
-        src: RegSelector,
-        dst: RegSelector,
-    },
-    BitNand {
-        src: RegSelector,
-        dst: RegSelector,
-    },
+    BitAnd { src: RegSelector, dst: RegSelector, },
+    BitOr { src: RegSelector, dst: RegSelector, },
+    BitXor { src: RegSelector, dst: RegSelector, },
+    BitNand { src: RegSelector, dst: RegSelector, },
 
-    BitNor {
-        src: RegSelector,
-        dst: RegSelector,
-    },
-    BitXnor {
-        src: RegSelector,
-        dst: RegSelector,
-    },
-    UnaryBitNot {
-        dst: RegSelector,
-    },
+    BitNor { src: RegSelector, dst: RegSelector, },
+    BitXnor { src: RegSelector, dst: RegSelector, },
+    UnaryBitNot { dst: RegSelector, },
     // TODO: System, SpecOp
 
-    Raw {
-        val: u16,
-    }
+    Raw { val: u16, }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -35,7 +35,7 @@ impl<'a> Parser<'a> {
         }
 
         if self.current.kind() == &TokenKind::Literal {
-            // Literals are inserted directly into the instruction 
+            // Literals are inserted directly into the instruction
             self.bump();
         }
 
@@ -48,10 +48,10 @@ impl<'a> Parser<'a> {
             let inst = self.expect_ident().map_err(|d| ctx.add_diag(d))?;
 
             let inst = match inst.to_lowercase().as_str() {
-                "mov" => self.parse_move(ctx)?,
-                "swizzle" => self.parse_swizzle(ctx)?,
+                "mov" | "move" => self.parse_move(ctx)?,
+                "swi" | "swizzle" => self.parse_swizzle(ctx)?,
 
-                "wmove" => self.parse_wselect(ctx, WSelectMode::Move)?,
+                "wmov" | "wmove" => self.parse_wselect(ctx, WSelectMode::Move)?,
                 "wswap" => self.parse_wselect(ctx, WSelectMode::Swap)?,
                 "wadd" => self.parse_wselect(ctx, WSelectMode::Add)?,
                 "wsub" => self.parse_wselect(ctx, WSelectMode::Sub)?,
@@ -59,12 +59,24 @@ impl<'a> Parser<'a> {
                 // =========
                 // math ops
                 // =========
-                "add" => self.parse_add(ctx, AddMode::Normal)?,
-                "add_sat" => self.parse_add(ctx, AddMode::Saturate)?,
-                "sub" => self.parse_sub(ctx, SubMode::Normal)?,
-                "sub_sat" => self.parse_sub(ctx, SubMode::Saturate)?,
-                "cmpeq" => self.parse_cmp(ctx, CmpMode::Eq)?,
-                "cmpneq" => self.parse_cmp(ctx, CmpMode::Neq)?,
+                "add"  => self.parse_add(ctx, AddMode::Normal)?,
+                "adds" => self.parse_add(ctx, AddMode::Saturate)?,
+                "sub"  => self.parse_sub(ctx, SubMode::Normal)?,
+                "subs" => self.parse_sub(ctx, SubMode::Saturate)?,
+                "eq" | "equ" => self.parse_cmp(ctx, CmpMode::Eq)?,
+                "ne" | "neq" => self.parse_cmp(ctx, CmpMode::Neq)?,
+
+                "carry" => self.parse_carry(ctx)?,
+
+                "lt" => self.parse_cmp(ctx, CmpMode::LessU)?,
+                "gt" => self.parse_cmp(ctx, CmpMode::GreaterU)?,
+
+                "le" | "lte" => self.parse_cmp(ctx, CmpMode::LessEqU)?,
+                "ge" | "gte" => self.parse_cmp(ctx, CmpMode::GreaterEqU)?,
+
+                "addo" | "addover" => self.parse_add(ctx, AddMode::Over)?,
+                "subo" | "subover" => self.parse_sub(ctx, SubMode::Over)?,
+                "rsubo" | "rsubover" => self.parse_sub(ctx, SubMode::ROver)?,
 
                 // ==========
                 // shift ops
@@ -85,6 +97,23 @@ impl<'a> Parser<'a> {
                 "nor" => self.parse_nor(ctx),
                 "xnor" => self.parse_xnor(ctx),
                 "not" => self.parse_unary_not(ctx),
+
+                // ============
+                // special ops
+                // ============
+                "hadd" => self.parse_spec(ctx, SpecOpMode::HorizontalAdd)?,
+                "mul" | "multi" => self.parse_spec(ctx, SpecOpMode::MultiplySaturate)?,
+                "mlo" | "multilow" => self.parse_spec(ctx, SpecOpMode::MultiplyLow)?,
+                "mhi" | "multihigh" => self.parse_spec(ctx, SpecOpMode::MultiplyHigh)?,
+                "div" | "divide" => self.parse_spec(ctx, SpecOpMode::Divide)?,
+                "rdiv" | "rdivide" => self.parse_spec(ctx, SpecOpMode::ReciprocalDivide)?,
+
+                // ==========
+                // system ops
+                // ==========
+                "nop" =>Instruction::new(InstructionKind::Nop, self.current.span()),
+                "hlt" | "halt" => Instruction::new(InstructionKind::Halt, self.current.span()),
+                "slp" | "sleep" => self.parse_sleep(ctx),
 
                 _ => {
                     ctx.add_diag(Diagnostic::new(
@@ -127,7 +156,7 @@ impl<'a> Parser<'a> {
             },
             _ => {
                 ctx.add_diag(Diagnostic::new(
-                    String::from(format!("expected raw value, got {:?}", self.current.kind())),
+                    format!("expected raw value, got {:?}", self.current.kind()),
                     self.current.span(),
                 ));
 
@@ -136,6 +165,57 @@ impl<'a> Parser<'a> {
                     Span::between(span_start, self.current.span()),
                 ))
             }
+        }
+    }
+
+    fn parse_sleep(&mut self, ctx: &mut Context) -> Instruction {
+        self.bump();
+        if !self.eat(&TokenKind::Dot) {
+            let ticks = match self.current.kind() {
+                TokenKind::Number(num) => {
+                    let num = *num;
+                    self.bump();
+                    num as u8
+                }
+                _ => {
+                    ctx.add_diag(Diagnostic::new(
+                        String::from("expected a number as sleep ticks"),
+                        self.current.span(),
+                    ));
+                    0u8
+                }
+            };
+            return Instruction::new(InstructionKind::Sleep { ticks }, self.current.span());
+        }
+        let mut byte = false;
+        let mut high = false;
+        if let Ok(size) = self.expect_ident().map_err(|d| {
+            ctx.add_diag(d.with_note(String::from(
+                "math operands need a `.b` or `.w` to specify size",
+            )));
+        }) {
+            match size.as_str() {
+                "h" => {byte = true; high = true}
+                "l" => {byte = true; high = false}
+                "w" => {byte = false; high = false}
+                _ => {
+                    ctx.add_diag(Diagnostic::new(
+                        String::from("math operands need a `.b` or `.w` to specify size"),
+                        self.current.span(),
+                    ));
+                }
+            }
+        }
+        let reg = self.parse_reg().unwrap_or_else(|d| {
+            ctx.add_diag(d);
+            // use a dummy selector to allow recovery
+            RegSelector::new_gpr(0, Span::DUMMY)
+        });
+
+        match (byte, high) {
+            (true, true) => Instruction::new(InstructionKind::Sleep8H { src: reg }, self.current.span()),
+            (true, false) => Instruction::new(InstructionKind::Sleep8L { src: reg }, self.current.span()),
+            (false, _) => Instruction::new(InstructionKind::Sleep16 { src: reg }, self.current.span()),
         }
     }
 
@@ -297,6 +377,7 @@ impl<'a> Parser<'a> {
         let kind = match mode {
             AddMode::Normal => InstructionKind::Add { size, src, dst },
             AddMode::Saturate => InstructionKind::AddSaturate { size, src, dst },
+            AddMode::Over => InstructionKind::AddOver { size, src, dst },
         };
 
         Ok(Instruction::new(
@@ -312,32 +393,22 @@ impl<'a> Parser<'a> {
         let kind = if dst == lhs {
             // dst = lhs - rhs
             // dst = dst - rhs
+            let src = rhs;
             match mode {
-                SubMode::Normal => InstructionKind::SubRev {
-                    size,
-                    src: rhs,
-                    dst,
-                },
-                SubMode::Saturate => InstructionKind::SubRevSaturate {
-                    size,
-                    src: rhs,
-                    dst,
-                },
+                SubMode::Normal => InstructionKind::RSub { size, src, dst},
+                SubMode::Saturate => InstructionKind::SubRevSaturate { size, src, dst, },
+                SubMode::Over => InstructionKind::SubOver { size, src, dst, },
+                SubMode::ROver => InstructionKind::RSubOver { size, src, dst, },
             }
         } else if dst == rhs {
             // dst = lhs - rhs
             // dst = lhs - dst
+            let src = lhs;
             match mode {
-                SubMode::Normal => InstructionKind::Sub {
-                    size,
-                    src: lhs,
-                    dst,
-                },
-                SubMode::Saturate => InstructionKind::SubSaturate {
-                    size,
-                    src: lhs,
-                    dst,
-                },
+                SubMode::Normal => InstructionKind::Sub { size, src, dst, },
+                SubMode::Saturate => InstructionKind::SubSaturate { size, src, dst, },
+                SubMode::Over => InstructionKind::SubOver { size, src, dst, },
+                SubMode::ROver => InstructionKind::RSubOver { size, src, dst, },
             }
         } else {
             // sub could not be encoded in only two registers, error
@@ -360,37 +431,19 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn parse_cmp(&mut self, ctx: &mut Context, mode: CmpMode) -> Result<Instruction, ()> {
+    fn parse_carry(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
         let span_start = self.current.span();
         let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
 
         let kind = if dst == lhs {
-            // dst = lhs cmp rhs
-            // dst = dst cmp src
             let src = rhs;
-
-            match mode {
-                CmpMode::Eq => InstructionKind::CmpEq { size, src, dst },
-                CmpMode::Neq => InstructionKind::CmpNeq { size, src, dst },
-            }
+            InstructionKind::Carry { size, src, dst }
         } else if dst == rhs {
-            // dst = lhs cmp rhs
-            // dst = src cmp dst
             let src = lhs;
-
-            match mode {
-                CmpMode::Eq => InstructionKind::CmpEq { size, src, dst },
-                CmpMode::Neq => InstructionKind::CmpNeq { size, src, dst },
-            }
+            InstructionKind::Carry { size, src, dst }
         } else {
-            // cmp could not be encoded in only two registers, error
-            ctx.add_diag(Diagnostic::new(
-                String::from("compare instructions must be of the form `dst = dst <cmp> src` or `dst = src <cmp> dst`"),
-                Span::between(span_start, rhs.span()),
-            ));
-
             // generate a dummy instruction to allow for further parsing
-            InstructionKind::CmpEq {
+            InstructionKind::Eq {
                 size,
                 src: lhs,
                 dst: rhs,
@@ -401,6 +454,121 @@ impl<'a> Parser<'a> {
             kind,
             Span::between(span_start, rhs.span()),
         ))
+    }
+
+    fn parse_cmp(&mut self, ctx: &mut Context, mode: CmpMode) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
+        let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
+
+        let kind = if dst == lhs {
+            // dst = lhs cmp rhs
+            // dst = dst cmp src
+            let src = rhs;
+
+            match mode {
+                CmpMode::Eq => InstructionKind::Eq { size, src, dst },
+                CmpMode::Neq => InstructionKind::NotEq { size, src, dst },
+                CmpMode::LessU => InstructionKind::LessU { size, src, dst },
+                CmpMode::GreaterU => InstructionKind::GreaterU { size, src, dst },
+                CmpMode::LessEqU => InstructionKind::LessEqU { size, src, dst },
+                CmpMode::GreaterEqU => InstructionKind::GreaterEqU { size, src, dst },
+            }
+        } else if dst == rhs {
+            // dst = lhs cmp rhs
+            // dst = src cmp dst
+            let src = lhs;
+
+            match mode {
+                CmpMode::Eq => InstructionKind::Eq { size, src, dst },
+                CmpMode::Neq => InstructionKind::NotEq { size, src, dst },
+                CmpMode::LessU => InstructionKind::LessU { size, src, dst },
+                CmpMode::GreaterU => InstructionKind::GreaterU { size, src, dst },
+                CmpMode::LessEqU => InstructionKind::LessEqU { size, src, dst },
+                CmpMode::GreaterEqU => InstructionKind::GreaterEqU { size, src, dst },
+            }
+        } else {
+            // cmp could not be encoded in only two registers, error
+            ctx.add_diag(Diagnostic::new(
+                String::from("compare instructions must be of the form `dst = dst <cmp> src` or `dst = src <cmp> dst`"),
+                Span::between(span_start, rhs.span()),
+            ));
+
+            // generate a dummy instruction to allow for further parsing
+            InstructionKind::Eq {
+                size,
+                src: lhs,
+                dst: rhs,
+            }
+        };
+
+        Ok(Instruction::new(
+            kind,
+            Span::between(span_start, rhs.span()),
+        ))
+    }
+
+    fn parse_spec(&mut self, ctx: &mut Context, mode: SpecOpMode) -> Result<Instruction, ()> {
+        let span_start = self.current.span();
+        self.bump();
+
+        let lhs = self.parse_reg().unwrap_or_else(|d| {
+            ctx.add_diag(d);
+            // use a dummy selector to allow recovery
+            RegSelector::new_gpr(0, Span::DUMMY)
+        });
+
+        if !self.eat(&TokenKind::Comma) {
+            ctx.add_diag(Diagnostic::new(
+                String::from("missing comma between lhs and rhs"),
+                self.current.span(),
+            ));
+            // allow recovery by not returning
+        }
+
+        let rhs = self.parse_reg().unwrap_or_else(|d| {
+            ctx.add_diag(d);
+            // use a dummy selector to allow recovery
+            RegSelector::new_gpr(0, Span::DUMMY)
+        });
+
+        match mode {
+            SpecOpMode::HorizontalAdd => {
+                Ok(Instruction::new(
+                    InstructionKind::HorizontalAdd { src: lhs, dst: rhs },
+                    Span::between(span_start, rhs.span()),
+                ))
+            },
+            SpecOpMode::MultiplySaturate => {
+                Ok(Instruction::new(
+                    InstructionKind::MultiplySaturate { src: lhs, dst: rhs },
+                    Span::between(span_start, rhs.span()),
+                ))
+            },
+            SpecOpMode::MultiplyLow => {
+                Ok(Instruction::new(
+                    InstructionKind::MultiplyLow { src: lhs, dst: rhs },
+                    Span::between(span_start, rhs.span()),
+                ))
+            },
+            SpecOpMode::MultiplyHigh => {
+                Ok(Instruction::new(
+                    InstructionKind::MultiplyHigh { src: lhs, dst: rhs },
+                    Span::between(span_start, rhs.span()),
+                ))
+            },
+            SpecOpMode::Divide => {
+                Ok(Instruction::new(
+                    InstructionKind::Divide { src: lhs, dst: rhs },
+                    Span::between(span_start, rhs.span()),
+                ))
+            },
+            SpecOpMode::ReciprocalDivide => {
+                Ok(Instruction::new(
+                    InstructionKind::ReciprocalDivide { src: lhs, dst: rhs },
+                    Span::between(span_start, rhs.span()),
+                ))
+            }
+        }
     }
 
     fn parse_lsl(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
@@ -813,8 +981,7 @@ impl<'a> Parser<'a> {
                 d.span(),
             )
         })?;
-        let reg = if name.starts_with('r') {
-            let idx = &name[1..];
+        let reg = if let Some(idx) = name.strip_prefix('r') {
             // ri is an alias for r7
             if idx == "i" {
                 RegSelector::new_gpr(7, span)
@@ -831,8 +998,7 @@ impl<'a> Parser<'a> {
                 };
                 RegSelector::new_gpr(idx, span)
             }
-        } else if name.starts_with('c') {
-            let idx = &name[1..];
+        } else if let Some(idx) = name.strip_prefix('c') {
             let idx = match idx.parse::<u8>() {
                 Ok(idx) if idx <= MAX_REG_IDX => idx,
                 _ => {
@@ -872,13 +1038,12 @@ impl<'a> Parser<'a> {
         //     return Err(());
         // }
 
-        let selector;
-        if self.eat(&TokenKind::Dot) {
-            selector = self.parse_set_selector(ctx, select_mode)?;
+        let selector = if self.eat(&TokenKind::Dot) {
+            self.parse_set_selector(ctx, select_mode)?
         } else {
             // Assume xyzw as default
-            selector = SetSelector::from_bits(0b1111, reg.span());
-        }
+            SetSelector::from_bits(0b1111, reg.span())
+        };
 
         Ok(SetRegSelector::new(
             reg,
@@ -1122,18 +1287,35 @@ impl<'a> Parser<'a> {
 enum AddMode {
     Normal,
     Saturate,
+    Over,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SubMode {
     Normal,
     Saturate,
+    Over,
+    ROver,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CmpMode {
     Eq,
     Neq,
+    GreaterU,
+    LessU,
+    GreaterEqU,
+    LessEqU,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SpecOpMode {
+    HorizontalAdd,
+    MultiplySaturate,
+    MultiplyLow,
+    MultiplyHigh,
+    Divide,
+    ReciprocalDivide,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

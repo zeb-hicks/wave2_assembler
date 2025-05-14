@@ -1,12 +1,60 @@
 use crate::instruction::{Instruction, InstructionKind, OpSize, RegSelector, ShiftAmount};
 
 pub fn gen(insts: &[Instruction]) -> Vec<u16> {
-    insts.into_iter().flat_map(|i| gen_inst(*i)).collect()
+    insts.iter().flat_map(|i| gen_inst(*i)).collect()
 }
 
 fn gen_inst(inst: Instruction) -> Vec<u16> {
     use InstructionKind::*;
     match *inst.kind() {
+        Nop => {
+            vec![op_from_parts(
+                0,
+                0,
+                1,
+                opcode::SYSTEM,
+            )]
+        }
+        Halt => {
+            vec![op_from_parts(
+                0,
+                0,
+                0,
+                opcode::SYSTEM,
+            )]
+        }
+        Sleep { ticks } => {
+            vec![op_from_parts(
+                0,
+                ticks,
+                1,
+                opcode::SYSTEM,
+            )]
+        }
+        Sleep8L { src } => {
+            vec![op_from_parts(
+                1,
+                src.idx(),
+                1,
+                opcode::SYSTEM,
+            )]
+        }
+        Sleep8H { src } => {
+            vec![op_from_parts(
+                2,
+                src.idx(),
+                1,
+                opcode::SYSTEM,
+            )]
+        }
+        Sleep16 { src } => {
+            vec![op_from_parts(
+                3,
+                src.idx(),
+                1,
+                opcode::SYSTEM,
+            )]
+        }
         Move { src, dst } => {
             // place a 1 bit everywhere we want to *not* move
             let skip_mask = src.selector().bits() ^ 0b1111;
@@ -81,13 +129,58 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
         )],
 
         Add { size, src, dst } => vec![math_op(math_ops::ADD, size, src, dst)],
-        AddSaturate { size, src, dst } => vec![math_op(math_ops::ADD_SAT, size, src, dst)],
         Sub { size, src, dst } => vec![math_op(math_ops::SUB, size, src, dst)],
+        RSub { size, src, dst } => vec![math_op(math_ops::RSUB, size, src, dst)],
+        Eq { size, src, dst } => vec![math_op(math_ops::EQ, size, src, dst)],
+        Carry { size, src, dst } => vec![math_op(math_ops::CARRY, size, src, dst)],
+        LessU { size, src, dst } => vec![math_op(math_ops::LESS_U, size, src, dst)],
+        GreaterU { size, src, dst } => vec![math_op(math_ops::GREATER_U, size, src, dst)],
+        NotEq { size, src, dst } => vec![math_op(math_ops::NOTEQ, size, src, dst)],
+        AddSaturate { size, src, dst } => vec![math_op(math_ops::ADD_SAT, size, src, dst)],
         SubSaturate { size, src, dst } => vec![math_op(math_ops::SUB_SAT, size, src, dst)],
-        SubRev { size, src, dst } => vec![math_op(math_ops::SUBREV, size, src, dst)],
-        SubRevSaturate { size, src, dst } => vec![math_op(math_ops::SUBREV_SAT, size, src, dst)],
-        CmpEq { size, src, dst } => vec![math_op(math_ops::CMPEQ, size, src, dst)],
-        CmpNeq { size, src, dst } => vec![math_op(math_ops::CMPNEQ, size, src, dst)],
+        SubRevSaturate { size, src, dst } => vec![math_op(math_ops::RSUB_SAT, size, src, dst)],
+        GreaterEqU { size, src, dst } => vec![math_op(math_ops::GREATER_EQ_U, size, src, dst)],
+        AddOver { size, src, dst } => vec![math_op(math_ops::ADD_OVER, size, src, dst)],
+        SubOver { size, src, dst } => vec![math_op(math_ops::SUB_OVER, size, src, dst)],
+        RSubOver { size, src, dst } => vec![math_op(math_ops::RSUB_OVER, size, src, dst)],
+        LessEqU { size, src, dst } => vec![math_op(math_ops::LESS_EQ_U, size, src, dst)],
+
+        HorizontalAdd { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            spec_ops::HORIZONTAL_ADD,
+            opcode::SPECOP,
+        )],
+        MultiplySaturate { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            spec_ops::MULTIPLY_SAT,
+            opcode::SPECOP,
+        )],
+        MultiplyLow { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            spec_ops::MULTIPLY_LOW,
+            opcode::SPECOP,
+        )],
+        MultiplyHigh { src, dst }  => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            spec_ops::MULTIPLY_HIGH,
+            opcode::SPECOP,
+        )],
+        Divide { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            spec_ops::DIVIDE,
+            opcode::SPECOP,
+        )],
+        ReciprocalDivide { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            spec_ops::RECIPROCAL_DIVIDE,
+            opcode::SPECOP,
+        )],
 
         ShiftLeft { size, dst, amount } => vec![shift_op(shift_ops::LEFT_SHIFT, size, dst, amount)],
         ShiftRightLogical { size, dst, amount } => {
@@ -175,7 +268,6 @@ fn shift_op(op: u8, size: OpSize, dst: RegSelector, amount: ShiftAmount) -> u16 
 
 mod opcode {
     /// TODO: implement
-    #[expect(dead_code, reason = "not yet implemented by the assembler")]
     pub(super) const SYSTEM: u8 = 0b0000;
     pub(super) const WSELECT: u8 = 0b0001;
     #[expect(dead_code, reason = "not yet used by the VM")]
@@ -191,9 +283,8 @@ mod opcode {
     pub(super) const SHIFT8: u8 = 0b1010;
     pub(super) const SHIFT16: u8 = 0b1011;
     pub(super) const BITOP: u8 = 0b1100;
-    /// TODO: implement
-    #[expect(dead_code, reason = "not yet implemented by the assembler")]
     pub(super) const SPECOP: u8 = 0b1101;
+    /// TODO: implement
     #[expect(dead_code, reason = "not yet used by the VM")]
     pub(super) const EXTRA14: u8 = 0b1110;
     #[expect(dead_code, reason = "not yet used by the VM")]
@@ -210,13 +301,20 @@ mod wselect_ops {
 mod math_ops {
     pub(super) const ADD: u8 = 0x0;
     pub(super) const SUB: u8 = 0x1;
-    pub(super) const SUBREV: u8 = 0x2;
-    pub(super) const CMPEQ: u8 = 0x3;
-
-    pub(super) const CMPNEQ: u8 = 0x7;
+    pub(super) const RSUB: u8 = 0x2;
+    pub(super) const EQ: u8 = 0x3;
+    pub(super) const CARRY: u8 = 0x4;
+    pub(super) const LESS_U: u8 = 0x5;
+    pub(super) const GREATER_U: u8 = 0x6;
+    pub(super) const NOTEQ: u8 = 0x7;
     pub(super) const ADD_SAT: u8 = 0x8;
     pub(super) const SUB_SAT: u8 = 0x9;
-    pub(super) const SUBREV_SAT: u8 = 0xA;
+    pub(super) const RSUB_SAT: u8 = 0xA;
+    pub(super) const GREATER_EQ_U: u8 = 0xB;
+    pub(super) const ADD_OVER: u8 = 0xC;
+    pub(super) const SUB_OVER: u8 = 0xD;
+    pub(super) const RSUB_OVER: u8 = 0xE;
+    pub(super) const LESS_EQ_U: u8 = 0xF;
 }
 
 mod shift_ops {
@@ -235,4 +333,13 @@ mod bit_ops {
     pub(super) const NOR: u8 = 0b0001;
     pub(super) const XNOR: u8 = 0b1001;
     pub(super) const NOT_DST: u8 = 0b0011;
+}
+
+mod spec_ops {
+    pub(super) const HORIZONTAL_ADD: u8 = 0b0000;
+    pub(super) const MULTIPLY_SAT: u8 = 0b0001;
+    pub(super) const MULTIPLY_LOW: u8 = 0b0010;
+    pub(super) const MULTIPLY_HIGH: u8 = 0b0011;
+    pub(super) const DIVIDE: u8 = 0b0100;
+    pub(super) const RECIPROCAL_DIVIDE: u8 = 0b0101;
 }
