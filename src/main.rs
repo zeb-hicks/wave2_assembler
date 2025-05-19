@@ -65,10 +65,12 @@ fn main() -> eyre::Result<()> {
     loop {
         let inst = parser.parse_inst(&mut ctx);
         match inst {
-            Ok(Some(inst)) => insts.push(inst),
-            Ok(None) => {
-                break;
-            }
+            Ok(inst) => {
+                if inst.len() == 0{ break; }
+                for inst in inst {
+                    insts.push(inst);
+                }
+            },
             Err(_) => {
                 break;
             }

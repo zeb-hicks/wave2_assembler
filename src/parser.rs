@@ -23,7 +23,7 @@ impl<'a> Parser<'a> {
         Self { lexer, current }
     }
 
-    pub fn parse_inst(&mut self, ctx: &mut Context) -> Result<Option<Instruction>, ()> {
+    pub fn parse_inst(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         // eat all newlines before an instruction to ignore empty lines
         // whitespace is ignored entirely, so it does not need to be considered
         while matches!(self.current.kind(), TokenKind::Newline) {
@@ -31,7 +31,7 @@ impl<'a> Parser<'a> {
         }
 
         if self.current.kind() == &TokenKind::EoF {
-            return Ok(None);
+            return Ok(vec![]);
         }
 
         if self.current.kind() == &TokenKind::Literal {
@@ -40,7 +40,7 @@ impl<'a> Parser<'a> {
         }
 
         if matches!(self.current.kind(), TokenKind::Raw(_)) {
-            return Ok(Some(self.parse_literal_raw(ctx)?));
+            return Ok(vec![self.parse_literal_raw(ctx)?]);
         }
 
         let span_start = self.current.span();
@@ -126,9 +126,9 @@ impl<'a> Parser<'a> {
                 // special ops
                 // ============
                 "hadd" => self.parse_spec(ctx, SpecOpMode::HorizontalAdd)?,
-                "mul" | "multi" => self.parse_spec(ctx, SpecOpMode::MultiplySaturate)?,
-                "mlo" | "multilow" => self.parse_spec(ctx, SpecOpMode::MultiplyLow)?,
-                "mhi" | "multihigh" => self.parse_spec(ctx, SpecOpMode::MultiplyHigh)?,
+                "mul" | "mults" | "multisat" => self.parse_spec(ctx, SpecOpMode::MultiplySaturate)?,
+                "mlo" | "multl" | "multlow" => self.parse_spec(ctx, SpecOpMode::MultiplyLow)?,
+                "mhi" | "multh" | "multhigh" => self.parse_spec(ctx, SpecOpMode::MultiplyHigh)?,
                 "div" | "divide" => self.parse_spec(ctx, SpecOpMode::Divide)?,
                 "rdiv" | "rdivide" => self.parse_spec(ctx, SpecOpMode::ReciprocalDivide)?,
 
@@ -139,6 +139,19 @@ impl<'a> Parser<'a> {
                 "hlt" | "halt" => self.parse_halt(),
                 "slp" | "sleep" => self.parse_sleep(ctx),
 
+                // ==========
+                // shorthand ops
+                // ==========
+                "skip" | "skip1" => self.parse_skip(ctx, 1),
+                "skip2" => self.parse_skip(ctx, 2),
+                "skip3" => self.parse_skip(ctx, 3),
+                "skip4" => self.parse_skip(ctx, 4),
+                "set" | "set1" => self.parse_set(ctx, 1),
+                "set2" => self.parse_set(ctx, 2),
+                "set3" => self.parse_set(ctx, 3),
+                "set4" => self.parse_set(ctx, 4),
+                "jmp" | "jump" => self.parse_jump(ctx),
+
                 _ => {
                     ctx.add_diag(Diagnostic::new(
                         format!("invalid instruction `{inst}`"),
@@ -147,7 +160,7 @@ impl<'a> Parser<'a> {
                     return Err(());
                 }
             };
-            Ok(Some(inst))
+            Ok(inst)
         };
 
         let ret = inner();
@@ -165,14 +178,143 @@ impl<'a> Parser<'a> {
         ret
     }
 
-    fn parse_nop(&mut self) -> Instruction {
+    fn parse_skip(&mut self, ctx: &mut Context, count: usize) -> Vec<Instruction> {
         self.bump();
-        Instruction::new(InstructionKind::Nop, self.current.span())
+
+        vec![Instruction::new(InstructionKind::Raw { val: match count {
+            1 => 0x0fd6,
+            2 => 0x0f96,
+            3 => 0x0f56,
+            4 => 0x0f16,
+            _ => {
+                ctx.add_diag(Diagnostic::new(
+                    format!("invalid skip count `{count}`"),
+                    self.current.span(),
+                ));
+                0x0fd6 // Default to skip1 so parsing can continue
+            }
+        } }, self.current.span())]
     }
 
-    fn parse_halt(&mut self) -> Instruction {
+    fn parse_set(&mut self, ctx: &mut Context, count: usize) -> Vec<Instruction> {
         self.bump();
-        Instruction::new(InstructionKind::Halt, self.current.span())
+
+        // First operand must be a writeable register
+        let reg = self.parse_reg().unwrap_or_else(|d| {
+            ctx.add_diag(d);
+            // use a dummy selector to allow recovery
+            RegSelector::new_gpr(0, Span::DUMMY)
+        });
+
+        // Make sure it's writeable
+        if !reg.is_gpr() {
+            ctx.add_diag(Diagnostic::new(
+                format!("expected dst to be a writable register, got {}", reg.idx()),
+                reg.span(),
+            ));
+        }
+
+        // Construct the store instruction (load reg.xyzw, [ri.x+])
+        let reg = (reg.idx() as u16) << 12;
+        let mut ivec = vec![Instruction::new(InstructionKind::Raw { val: match count {
+            1 => 0xfd6 | reg,
+            2 => 0xf96 | reg,
+            3 => 0xf56 | reg,
+            4 => 0xf16 | reg,
+            _ => {
+                ctx.add_diag(Diagnostic::new(
+                    format!("invalid set count `{count}`"),
+                    self.current.span(),
+                ));
+                0xfd6 | reg // Default to set1 so parsing can continue
+            }
+        } }, self.current.span())];
+
+        // Parse in the literal values
+        for _ in 0..count {
+            if !self.eat(&TokenKind::Comma) {
+                continue;
+            }
+            match self.current.kind() {
+                TokenKind::Number(v) => {
+                    let v = *v;
+                    self.bump();
+                    ivec.push(Instruction::new(
+                        InstructionKind::Raw { val: v },
+                        self.current.span(),
+                    ));
+                }
+                _ => {
+                    continue;
+                }
+            }
+        }
+
+        // Make sure we got the correct number of values
+        if ivec.len() != count + 1 {
+            ctx.add_diag(Diagnostic::new(
+                format!("expected {count} values, got {}", ivec.len() - 1),
+                self.current.span(),
+            ));
+        }
+
+        ivec
+    }
+
+    fn parse_jump(&mut self, ctx: &mut Context) -> Vec<Instruction> {
+
+        // Jump instruction is actually a load ri.x, [ri.x+] >> !nnnn
+
+        let mov = Instruction::new(
+            InstructionKind::Load {
+                mem: MemoryOperand::new(
+                    RegSelector::new_gpr(7, self.current.span()),
+                    false,
+                    true,
+                    self.current.span(),
+                ),
+                dst: SetRegSelector::new(
+                    RegSelector::new_gpr(7, self.current.span()),
+                    SetSelector::from_bits(0b1, self.current.span()),
+                    self.current.span(),
+                ),
+            },
+            self.current.span(),
+        );
+
+        self.bump();
+
+        let num = match self.current.kind() {
+            TokenKind::Number(num) => {
+                let num = *num;
+                self.bump();
+                num
+            }
+            _ => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("expected a number as jump offset"),
+                    self.current.span(),
+                ));
+                0u16
+            }
+        };
+
+        let lit = Instruction::new(
+            InstructionKind::Raw { val: num },
+            Span::between(self.current.span(), self.current.span()),
+        );
+
+        vec![mov, lit]
+    }
+
+    fn parse_nop(&mut self) -> Vec<Instruction> {
+        self.bump();
+        vec![Instruction::new(InstructionKind::Nop, self.current.span())]
+    }
+
+    fn parse_halt(&mut self) -> Vec<Instruction> {
+        self.bump();
+        vec![Instruction::new(InstructionKind::Halt, self.current.span())]
     }
 
     fn parse_literal_raw(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
@@ -202,7 +344,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_sleep(&mut self, ctx: &mut Context) -> Instruction {
+    fn parse_sleep(&mut self, ctx: &mut Context) -> Vec<Instruction> {
         self.bump();
         if !self.eat(&TokenKind::Dot) {
             let ticks = match self.current.kind() {
@@ -219,7 +361,7 @@ impl<'a> Parser<'a> {
                     0u8
                 }
             };
-            return Instruction::new(InstructionKind::Sleep { ticks }, self.current.span());
+            return vec![Instruction::new(InstructionKind::Sleep { ticks }, self.current.span())];
         }
         let mut byte = false;
         let mut high = false;
@@ -247,13 +389,13 @@ impl<'a> Parser<'a> {
         });
 
         match (byte, high) {
-            (true, true) => Instruction::new(InstructionKind::Sleep8H { src: reg }, self.current.span()),
-            (true, false) => Instruction::new(InstructionKind::Sleep8L { src: reg }, self.current.span()),
-            (false, _) => Instruction::new(InstructionKind::Sleep16 { src: reg }, self.current.span()),
+            (true, true) => vec![Instruction::new(InstructionKind::Sleep8H { src: reg }, self.current.span())],
+            (true, false) => vec![Instruction::new(InstructionKind::Sleep8L { src: reg }, self.current.span())],
+            (false, _) => vec![Instruction::new(InstructionKind::Sleep16 { src: reg }, self.current.span())],
         }
     }
 
-    fn parse_move(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+    fn parse_move(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         self.bump();
 
@@ -292,10 +434,10 @@ impl<'a> Parser<'a> {
                     ));
                 }
 
-                Ok(Instruction::new(
+                Ok(vec![Instruction::new(
                     InstructionKind::Move { src, dst },
                     Span::between(span_start, src.span()),
-                ))
+                )])
             }
             (LoadStoreOp::MemOp(mem), LoadStoreOp::RegOp(dst)) => {
                 // the dst must be a writable register
@@ -306,22 +448,22 @@ impl<'a> Parser<'a> {
                     ));
                 }
 
-                Ok(Instruction::new(
+                Ok(vec![Instruction::new(
                     InstructionKind::Load { mem, dst },
                     Span::between(span_start, mem.span()),
-                ))
+                )])
             }
-            (LoadStoreOp::RegOp(src), LoadStoreOp::MemOp(mem)) => Ok(Instruction::new(
+            (LoadStoreOp::RegOp(src), LoadStoreOp::MemOp(mem)) => Ok(vec![Instruction::new(
                 InstructionKind::Store { src, mem },
                 Span::between(span_start, src.span()),
-            )),
+            )]),
 
             // mem-to-mem moves do not exist
             (LoadStoreOp::MemOp(_), LoadStoreOp::MemOp(_)) => todo!(),
         }
     }
 
-    fn parse_swizzle(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+    fn parse_swizzle(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         self.bump();
 
@@ -333,13 +475,13 @@ impl<'a> Parser<'a> {
                 dst.span(),
             ));
         }
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             InstructionKind::Swizzle { reg: dst },
             Span::between(span_start, dst.span()),
-        ))
+        )])
     }
 
-    fn parse_wselect(&mut self, ctx: &mut Context, mode: WSelectMode) -> Result<Instruction, ()> {
+    fn parse_wselect(&mut self, ctx: &mut Context, mode: WSelectMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         self.bump();
 
@@ -373,13 +515,13 @@ impl<'a> Parser<'a> {
             WSelectMode::Sub => InstructionKind::WSub { src, dst },
         };
 
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             kind,
             Span::between(span_start, src.span()),
-        ))
+        )])
     }
 
-    fn parse_add(&mut self, ctx: &mut Context, mode: AddMode) -> Result<Instruction, ()> {
+    fn parse_add(&mut self, ctx: &mut Context, mode: AddMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
 
@@ -414,13 +556,13 @@ impl<'a> Parser<'a> {
             AddMode::Over => InstructionKind::AddOver { size, src, dst },
         };
 
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             kind,
             Span::between(span_start, rhs.span()),
-        ))
+        )])
     }
 
-    fn parse_sub(&mut self, ctx: &mut Context, mode: SubMode) -> Result<Instruction, ()> {
+    fn parse_sub(&mut self, ctx: &mut Context, mode: SubMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
 
@@ -459,13 +601,13 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             kind,
             Span::between(span_start, rhs.span()),
-        ))
+        )])
     }
 
-    fn parse_carry(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+    fn parse_carry(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
 
@@ -484,13 +626,13 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             kind,
             Span::between(span_start, rhs.span()),
-        ))
+        )])
     }
 
-    fn parse_cmp(&mut self, ctx: &mut Context, mode: CmpMode) -> Result<Instruction, ()> {
+    fn parse_cmp(&mut self, ctx: &mut Context, mode: CmpMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, lhs, rhs) = self.parse_math_common(ctx)?;
 
@@ -535,13 +677,13 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             kind,
             Span::between(span_start, rhs.span()),
-        ))
+        )])
     }
 
-    fn parse_spec(&mut self, ctx: &mut Context, mode: SpecOpMode) -> Result<Instruction, ()> {
+    fn parse_spec(&mut self, ctx: &mut Context, mode: SpecOpMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         self.bump();
 
@@ -565,92 +707,67 @@ impl<'a> Parser<'a> {
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
-        match mode {
-            SpecOpMode::HorizontalAdd => {
-                Ok(Instruction::new(
-                    InstructionKind::HorizontalAdd { src: lhs, dst: rhs },
-                    Span::between(span_start, rhs.span()),
-                ))
-            },
-            SpecOpMode::MultiplySaturate => {
-                Ok(Instruction::new(
-                    InstructionKind::MultiplySaturate { src: lhs, dst: rhs },
-                    Span::between(span_start, rhs.span()),
-                ))
-            },
-            SpecOpMode::MultiplyLow => {
-                Ok(Instruction::new(
-                    InstructionKind::MultiplyLow { src: lhs, dst: rhs },
-                    Span::between(span_start, rhs.span()),
-                ))
-            },
-            SpecOpMode::MultiplyHigh => {
-                Ok(Instruction::new(
-                    InstructionKind::MultiplyHigh { src: lhs, dst: rhs },
-                    Span::between(span_start, rhs.span()),
-                ))
-            },
-            SpecOpMode::Divide => {
-                Ok(Instruction::new(
-                    InstructionKind::Divide { src: lhs, dst: rhs },
-                    Span::between(span_start, rhs.span()),
-                ))
-            },
-            SpecOpMode::ReciprocalDivide => {
-                Ok(Instruction::new(
-                    InstructionKind::ReciprocalDivide { src: lhs, dst: rhs },
-                    Span::between(span_start, rhs.span()),
-                ))
-            }
-        }
+        Ok(vec![
+            Instruction::new(
+                match mode {
+                    SpecOpMode::HorizontalAdd => InstructionKind::HorizontalAdd { src: lhs, dst: rhs },
+                    SpecOpMode::MultiplySaturate => InstructionKind::MultiplySaturate { src: lhs, dst: rhs },
+                    SpecOpMode::MultiplyLow => InstructionKind::MultiplyLow { src: lhs, dst: rhs },
+                    SpecOpMode::MultiplyHigh => InstructionKind::MultiplyHigh { src: lhs, dst: rhs },
+                    SpecOpMode::Divide => InstructionKind::Divide { src: lhs, dst: rhs },
+                    SpecOpMode::ReciprocalDivide => InstructionKind::ReciprocalDivide { src: lhs, dst: rhs },
+                },
+                Span::between(span_start, rhs.span()),
+            )
+        ])
     }
 
-    fn parse_lsl(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+    fn parse_lsl(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             InstructionKind::ShiftLeft { size, dst, amount },
             Span::between(span_start, amount.span()),
-        ))
+        )])
     }
 
-    fn parse_rol(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+    fn parse_rol(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             InstructionKind::RotateLeft { size, dst, amount },
             Span::between(span_start, amount.span()),
-        ))
+        )])
     }
 
-    fn parse_lsr(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+    fn parse_lsr(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             InstructionKind::ShiftRightLogical { size, dst, amount },
             Span::between(span_start, amount.span()),
-        ))
+        )])
     }
 
-    fn parse_asr(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+    fn parse_asr(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             InstructionKind::ShiftRightArithmetic { size, dst, amount },
             Span::between(span_start, amount.span()),
-        ))
+        )])
     }
 
-    fn parse_ror(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+    fn parse_ror(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             InstructionKind::RotateRight { size, dst, amount },
             Span::between(span_start, amount.span()),
-        ))
+        )])
     }
 
-    fn parse_bit_op(&mut self, ctx: &mut Context, mode: BitOpMode) -> Result<Instruction, ()> {
+    fn parse_bit_op(&mut self, ctx: &mut Context, mode: BitOpMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (dst, src) = self.parse_bitop_common(ctx)?;
 
@@ -680,13 +797,13 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             kind,
             Span::between(span_start, src.span()),
-        ))
+        )])
     }
 
-    fn parse_bit_op_unary(&mut self, ctx: &mut Context, mode: BitOpMode) -> Result<Instruction, ()> {
+    fn parse_bit_op_unary(&mut self, ctx: &mut Context, mode: BitOpMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         self.bump();
 
@@ -726,10 +843,10 @@ impl<'a> Parser<'a> {
             }
         };
 
-        Ok(Instruction::new(
+        Ok(vec![Instruction::new(
             kind,
             Span::between(span_start, dst.span()),
-        ))
+        )])
     }
 
     // =======================
