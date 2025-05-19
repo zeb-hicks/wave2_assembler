@@ -262,6 +262,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_jump(&mut self, ctx: &mut Context) -> Vec<Instruction> {
+        let span_start = self.current.span();
 
         // Jump instruction is actually a load ri.x, [ri.x+] >> !nnnn
 
@@ -299,9 +300,20 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let span = match Span::between(span_start, self.current.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span for jump offset"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         let lit = Instruction::new(
             InstructionKind::Raw { val: num },
-            Span::between(self.current.span(), self.current.span()),
+            span,
         );
 
         vec![mov, lit]
@@ -321,27 +333,36 @@ impl<'a> Parser<'a> {
         let span_start = self.current.span();
         // self.bump();
 
-        match self.current.kind() {
+        let raw = match self.current.kind() {
             TokenKind::Raw(val) => {
                 let val = *val;
                 self.bump();
-                Ok(Instruction::new(
-                    InstructionKind::Raw { val },
-                    Span::between(span_start, self.current.span()),
-                ))
+                val
             },
             _ => {
                 ctx.add_diag(Diagnostic::new(
                     format!("expected raw value, got {:?}", self.current.kind()),
                     self.current.span(),
                 ));
-
-                Ok(Instruction::new(
-                    InstructionKind::Raw { val: 0 },
-                    Span::between(span_start, self.current.span()),
-                ))
+                0
             }
-        }
+        };
+
+        let span = match Span::between(span_start, self.current.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span for raw value"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
+        Ok(Instruction::new(
+            InstructionKind::Raw { val: raw },
+            span,
+        ))
     }
 
     fn parse_sleep(&mut self, ctx: &mut Context) -> Vec<Instruction> {
@@ -411,7 +432,7 @@ impl<'a> Parser<'a> {
 
         let src = self.parse_move_operand(ctx)?;
 
-        match (src, dst) {
+        let (kind, span) = match (src, dst) {
             (LoadStoreOp::RegOp(src), LoadStoreOp::RegOp(dst)) => {
                 // for register-to-register moves, the selected source elements must be the same
                 // as the selected destination elements.
@@ -422,7 +443,7 @@ impl<'a> Parser<'a> {
                     // this is not critical to fail on, it's mostly for clarity in writing
                     ctx.add_diag(Diagnostic::new(
                         String::from("lhs and rhs of move must select the same elements"),
-                        Span::between(dst.span(), src.span()),
+                        Span::DUMMY,
                     ));
                 }
 
@@ -433,11 +454,7 @@ impl<'a> Parser<'a> {
                         dst.span(),
                     ));
                 }
-
-                Ok(vec![Instruction::new(
-                    InstructionKind::Move { src, dst },
-                    Span::between(span_start, src.span()),
-                )])
+                (InstructionKind::Move { src, dst }, src.span())
             }
             (LoadStoreOp::MemOp(mem), LoadStoreOp::RegOp(dst)) => {
                 // the dst must be a writable register
@@ -448,19 +465,31 @@ impl<'a> Parser<'a> {
                     ));
                 }
 
-                Ok(vec![Instruction::new(
-                    InstructionKind::Load { mem, dst },
-                    Span::between(span_start, mem.span()),
-                )])
+                (InstructionKind::Load { mem, dst }, mem.span())
             }
-            (LoadStoreOp::RegOp(src), LoadStoreOp::MemOp(mem)) => Ok(vec![Instruction::new(
-                InstructionKind::Store { src, mem },
-                Span::between(span_start, src.span()),
-            )]),
+            (LoadStoreOp::RegOp(src), LoadStoreOp::MemOp(mem)) => {
+                (InstructionKind::Store { src, mem }, src.span())
+            },
 
             // mem-to-mem moves do not exist
             (LoadStoreOp::MemOp(_), LoadStoreOp::MemOp(_)) => todo!(),
-        }
+        };
+
+        let span = match Span::between(span_start, span) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
+        Ok(vec![Instruction::new(
+            kind,
+            span,
+        )])
     }
 
     fn parse_swizzle(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
@@ -475,9 +504,21 @@ impl<'a> Parser<'a> {
                 dst.span(),
             ));
         }
+
+        let span = match Span::between(span_start, dst.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             InstructionKind::Swizzle { reg: dst },
-            Span::between(span_start, dst.span()),
+            span,
         )])
     }
 
@@ -515,9 +556,20 @@ impl<'a> Parser<'a> {
             WSelectMode::Sub => InstructionKind::WSub { src, dst },
         };
 
+        let span = match Span::between(span_start, src.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             kind,
-            Span::between(span_start, src.span()),
+            span,
         )])
     }
 
@@ -542,7 +594,7 @@ impl<'a> Parser<'a> {
             // add could not be encoded in only two registers, error
             ctx.add_diag(Diagnostic::new(
                 String::from("add must be of the form `dst = dst + src` or `dst = src + dst`"),
-                Span::between(span_start, rhs.span()),
+                Span::between(span_start, rhs.span()).unwrap_or(Span::DUMMY),
             ));
 
             // pick lhs to be the src arbitrarily
@@ -556,9 +608,20 @@ impl<'a> Parser<'a> {
             AddMode::Over => InstructionKind::AddOver { size, src, dst },
         };
 
+        let span = match Span::between(span_start, rhs.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             kind,
-            Span::between(span_start, rhs.span()),
+            span,
         )])
     }
 
@@ -590,7 +653,7 @@ impl<'a> Parser<'a> {
             // sub could not be encoded in only two registers, error
             ctx.add_diag(Diagnostic::new(
                 String::from("sub must be of the form `dst = dst - src` or `dst = src - dst`"),
-                Span::between(span_start, rhs.span()),
+                Span::between(span_start, rhs.span()).unwrap_or(Span::DUMMY),
             ));
 
             // generate a dummy sub instruction to allow for further parsing
@@ -601,9 +664,20 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let span = match Span::between(span_start, rhs.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             kind,
-            Span::between(span_start, rhs.span()),
+            span,
         )])
     }
 
@@ -626,9 +700,20 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let span = match Span::between(span_start, rhs.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             kind,
-            Span::between(span_start, rhs.span()),
+            span,
         )])
     }
 
@@ -666,7 +751,7 @@ impl<'a> Parser<'a> {
             // cmp could not be encoded in only two registers, error
             ctx.add_diag(Diagnostic::new(
                 String::from("compare instructions must be of the form `dst = dst <cmp> src` or `dst = src <cmp> dst`"),
-                Span::between(span_start, rhs.span()),
+                Span::between(span_start, rhs.span()).unwrap_or(Span::DUMMY),
             ));
 
             // generate a dummy instruction to allow for further parsing
@@ -677,9 +762,20 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let span = match Span::between(span_start, rhs.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             kind,
-            Span::between(span_start, rhs.span()),
+            span,
         )])
     }
 
@@ -707,6 +803,17 @@ impl<'a> Parser<'a> {
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
+        let span = match Span::between(span_start, rhs.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![
             Instruction::new(
                 match mode {
@@ -717,7 +824,7 @@ impl<'a> Parser<'a> {
                     SpecOpMode::Divide => InstructionKind::Divide { src: lhs, dst: rhs },
                     SpecOpMode::ReciprocalDivide => InstructionKind::ReciprocalDivide { src: lhs, dst: rhs },
                 },
-                Span::between(span_start, rhs.span()),
+                span,
             )
         ])
     }
@@ -725,45 +832,105 @@ impl<'a> Parser<'a> {
     fn parse_lsl(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
+
+        let span = match Span::between(span_start, amount.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             InstructionKind::ShiftLeft { size, dst, amount },
-            Span::between(span_start, amount.span()),
+            span,
         )])
     }
 
     fn parse_rol(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
+
+        let span = match Span::between(span_start, amount.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             InstructionKind::RotateLeft { size, dst, amount },
-            Span::between(span_start, amount.span()),
+            span,
         )])
     }
 
     fn parse_lsr(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
+
+        let span = match Span::between(span_start, amount.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             InstructionKind::ShiftRightLogical { size, dst, amount },
-            Span::between(span_start, amount.span()),
+            span,
         )])
     }
 
     fn parse_asr(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
+
+        let span = match Span::between(span_start, amount.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             InstructionKind::ShiftRightArithmetic { size, dst, amount },
-            Span::between(span_start, amount.span()),
+            span,
         )])
     }
 
     fn parse_ror(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
         let (size, dst, amount) = self.parse_shift_common(ctx)?;
+
+        let span = match Span::between(span_start, amount.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             InstructionKind::RotateRight { size, dst, amount },
-            Span::between(span_start, amount.span()),
+            span,
         )])
     }
 
@@ -797,9 +964,20 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let span = match Span::between(span_start, src.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             kind,
-            Span::between(span_start, src.span()),
+            span,
         )])
     }
 
@@ -843,9 +1021,20 @@ impl<'a> Parser<'a> {
             }
         };
 
+        let span = match Span::between(span_start, dst.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(vec![Instruction::new(
             kind,
-            Span::between(span_start, dst.span()),
+            span,
         )])
     }
 
@@ -913,7 +1102,7 @@ impl<'a> Parser<'a> {
                 // but it actually is three, dst, lhs, rhs
                 ctx.add_diag(Diagnostic::new(
                     String::from("math operands are of the form `op dst, lhs, rhs`"),
-                    Span::between(span_start, self.current.span()),
+                    Span::between(span_start, self.current.span()).unwrap_or(Span::DUMMY),
                 ));
                 // do not recover
                 return Err(());
@@ -1124,12 +1313,22 @@ impl<'a> Parser<'a> {
                 // it's probably just missing, recover
             }
 
-            let span_end = self.current.span();
+            let span = match Span::between(span_start, self.current.span()) {
+                Ok(span) => span,
+                Err(_) => {
+                    ctx.add_diag(Diagnostic::new(
+                        String::from("invalid span"),
+                        self.current.span(),
+                    ));
+                    Span::DUMMY
+                }
+            };
+
             Ok(LoadStoreOp::MemOp(MemoryOperand::new(
                 set.reg(),
                 all,
                 increment,
-                Span::between(span_start, span_end),
+                span,
             )))
         } else {
             Ok(LoadStoreOp::RegOp(set))
@@ -1208,10 +1407,21 @@ impl<'a> Parser<'a> {
             SetSelector::from_bits(0b1111, reg.span())
         };
 
+        let span = match Span::between(reg.span(), selector.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(SetRegSelector::new(
             reg,
             selector,
-            Span::between(reg.span(), selector.span()),
+            span,
         ))
     }
 
@@ -1230,10 +1440,21 @@ impl<'a> Parser<'a> {
 
         let selector = self.parse_swizzle_selector(ctx)?;
 
+        let span = match Span::between(reg.span(), selector.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(SwizzleRegSelector::new(
             reg,
             selector,
-            Span::between(reg.span(), selector.span()),
+            span,
         ))
     }
 
@@ -1252,10 +1473,21 @@ impl<'a> Parser<'a> {
 
         let selector = self.parse_swizzle_single(ctx)?;
 
+        let span = match Span::between(reg.span(), selector.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
         Ok(SwizzleRegSelector::new(
             reg,
             selector,
-            Span::between(reg.span(), selector.span()),
+            span,
         ))
     }
 

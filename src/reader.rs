@@ -27,16 +27,7 @@ impl<'a> Reader<'a> {
         };
 
         if self.inside_literal && start_c != '\n' {
-            let mut i = 1;
-            self.eat_while(move |c| {
-                i += 1;
-                match (i, c) {
-                    (1..=4, '0'..='9') => true,
-                    (1..=4, 'a'..='f') => true,
-                    (1..=4, 'A'..='F') => true,
-                    _ => false,
-                }
-            });
+            self.eat_while(move |c| c.is_ascii_hexdigit());
             let token = Token::new(TokenKind::Raw, self.token_len());
             self.reset_len();
             return token;
@@ -48,6 +39,7 @@ impl<'a> Reader<'a> {
             '#' => self.comment(),
             ';' => self.comment(),
             '!' => self.literal(),
+            '$' => self.hex(),
             '\n' => self.newline(),
             c if c.is_whitespace() => self.eat_whitespace(),
             c if is_ident_start(c) => self.ident(),
@@ -78,6 +70,11 @@ impl<'a> Reader<'a> {
     fn literal(&mut self) -> TokenKind {
         self.inside_literal = true;
         TokenKind::Literal
+    }
+
+    fn hex(&mut self) -> TokenKind {
+        self.eat_while(|c| c.is_ascii_hexdigit());
+        TokenKind::Hex
     }
 
     fn newline(&mut self) -> TokenKind {
@@ -161,6 +158,7 @@ pub enum TokenKind {
     Plus,
     Ident,
     Number,
+    Hex,
     Literal,
     Raw,
 }

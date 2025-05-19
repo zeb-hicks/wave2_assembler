@@ -40,6 +40,10 @@ impl<'a> Lexer<'a> {
                         .parse()
                         .expect("lexed number literals should be valid"),
                 ),
+                reader::TokenKind::Hex => Number(
+                    u16::from_str_radix(&self.src[(start_pos+1)..self.pos], 16)
+                        .expect(format!("lexed hex literals should be valid, {}", &self.src[start_pos..self.pos]).as_str()),
+                ),
                 reader::TokenKind::Literal => Literal,
                 reader::TokenKind::Raw => {
                     let s = self.src[start_pos..self.pos].to_string();
@@ -54,6 +58,7 @@ impl<'a> Lexer<'a> {
                 reader::TokenKind::RightBracket => RightBracket,
                 reader::TokenKind::Plus => Plus,
             };
+            // println!("Lexed token: {}, span: {}..{}", kind, start_pos, self.pos);
             let span = Span::new(start_pos as u32, self.pos as u32);
             return Token::new(kind, span);
         }
@@ -82,12 +87,15 @@ impl Span {
         self.high
     }
 
-    pub fn between(low: Span, high: Span) -> Self {
-        assert!(low.low() < high.high());
-        Self {
+    pub fn between(low: Span, high: Span) -> Result<Self, ()> {
+        // assert!(low.low() < high.high());
+        if low.low() >= high.high() {
+            return Err(());
+        }
+        Ok(Self {
             low: low.low(),
             high: high.high(),
-        }
+        })
     }
 }
 
