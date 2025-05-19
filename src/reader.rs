@@ -1,3 +1,4 @@
+#![allow(clippy::uninlined_format_args,clippy::match_like_matches_macro)]
 use std::str::Chars;
 
 /// this is its own thing because it turns out to be easier to just collect the
@@ -69,6 +70,7 @@ impl<'a> Reader<'a> {
     }
 
     fn comment(&mut self) -> TokenKind {
+        self.inside_literal = false;
         self.eat_while(|c| c != '\n');
         TokenKind::Comment
     }

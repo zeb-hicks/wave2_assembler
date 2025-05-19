@@ -74,9 +74,9 @@ impl<'a> Parser<'a> {
                 "le" | "lte" => self.parse_cmp(ctx, CmpMode::LessEqU)?,
                 "ge" | "gte" => self.parse_cmp(ctx, CmpMode::GreaterEqU)?,
 
-                "addo" | "addover" => self.parse_add(ctx, AddMode::Over)?,
-                "subo" | "subover" => self.parse_sub(ctx, SubMode::Over)?,
-                "rsubo" | "rsubover" => self.parse_sub(ctx, SubMode::ROver)?,
+                "ado" | "addo" | "addover" => self.parse_add(ctx, AddMode::Over)?,
+                "suo" | "subo" | "subover" => self.parse_sub(ctx, SubMode::Over)?,
+                "rso" | "rsuo" | "rsubo" | "rsubover" => self.parse_sub(ctx, SubMode::ROver)?,
 
                 // ==========
                 // shift ops
@@ -90,13 +90,37 @@ impl<'a> Parser<'a> {
                 // ============
                 // bitwise ops
                 // ============
-                "and" => self.parse_and(ctx),
-                "or" => self.parse_or(ctx),
-                "xor" => self.parse_xor(ctx),
-                "nand" => self.parse_nand(ctx),
-                "nor" => self.parse_nor(ctx),
-                "xnor" => self.parse_xnor(ctx),
-                "not" => self.parse_unary_not(ctx),
+
+                // All { dst: RegSelector, },
+                "all" => self.parse_bit_op_unary(ctx, BitOpMode::All)?,
+                // One { dst: RegSelector, },
+                "one" => self.parse_bit_op_unary(ctx, BitOpMode::One)?,
+                // Swap { src: RegSelector, dst: RegSelector, },
+                "swp" | "swap" => self.parse_bit_op(ctx, BitOpMode::Swap)?,
+                // NotSrc { src: RegSelector, dst: RegSelector, },
+                "nsrc" | "notsrc" => self.parse_bit_op(ctx, BitOpMode::NotSrc)?,
+                // NotDst { dst: RegSelector, },
+                "ndst" | "notdst" | "notdest" => self.parse_bit_op_unary(ctx, BitOpMode::NotDst)?,
+                // SrcAndNotDst { src: RegSelector, dst: RegSelector, },
+                "sand" | "srcandnotdst" => self.parse_bit_op(ctx, BitOpMode::SrcAndNotDst)?,
+                // NotSrcAndDst { src: RegSelector, dst: RegSelector, },
+                "nsad" | "notsrcanddst" => self.parse_bit_op(ctx, BitOpMode::NotSrcAndDst)?,
+                // SrcOrNotDst { src: RegSelector, dst: RegSelector, },
+                "sond" | "srcornotdst" => self.parse_bit_op(ctx, BitOpMode::SrcOrNotDst)?,
+                // NotSrcOrDst { src: RegSelector, dst: RegSelector, },
+                "nsod" | "notsrcordst" => self.parse_bit_op(ctx, BitOpMode::NotSrcOrDst)?,
+                // And { src: RegSelector, dst: RegSelector, },
+                "and" => self.parse_bit_op(ctx, BitOpMode::And)?,
+                // Or { src: RegSelector, dst: RegSelector, },
+                "or" => self.parse_bit_op(ctx, BitOpMode::Or)?,
+                // Xor { src: RegSelector, dst: RegSelector, },
+                "xor" => self.parse_bit_op(ctx, BitOpMode::Xor)?,
+                // Nand { src: RegSelector, dst: RegSelector, },
+                "nand" => self.parse_bit_op(ctx, BitOpMode::Xand)?,
+                // Nor { src: RegSelector, dst: RegSelector, },
+                "nor" => self.parse_bit_op(ctx, BitOpMode::Nor)?,
+                // XNor { src: RegSelector, dst: RegSelector, },
+                "xnor" => self.parse_bit_op(ctx, BitOpMode::Xnor)?,
 
                 // ============
                 // special ops
@@ -111,13 +135,13 @@ impl<'a> Parser<'a> {
                 // ==========
                 // system ops
                 // ==========
-                "nop" =>Instruction::new(InstructionKind::Nop, self.current.span()),
-                "hlt" | "halt" => Instruction::new(InstructionKind::Halt, self.current.span()),
+                "nop" => self.parse_nop(),
+                "hlt" | "halt" => self.parse_halt(),
                 "slp" | "sleep" => self.parse_sleep(ctx),
 
                 _ => {
                     ctx.add_diag(Diagnostic::new(
-                        format!("invalid instruction `{}`", inst),
+                        format!("invalid instruction `{inst}`"),
                         self.current.span(),
                     ));
                     return Err(());
@@ -135,10 +159,20 @@ impl<'a> Parser<'a> {
         }
 
         if ret.is_err() {
-            warn!("parsing encountered \"fatal\" error starting at {:?}, this probably should not happen", span_start);
+            warn!("parsing encountered \"fatal\" error starting at {span_start:?}, this probably should not happen");
         }
 
         ret
+    }
+
+    fn parse_nop(&mut self) -> Instruction {
+        self.bump();
+        Instruction::new(InstructionKind::Nop, self.current.span())
+    }
+
+    fn parse_halt(&mut self) -> Instruction {
+        self.bump();
+        Instruction::new(InstructionKind::Halt, self.current.span())
     }
 
     fn parse_literal_raw(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
@@ -616,63 +650,54 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn parse_and(&mut self, ctx: &mut Context) -> Instruction {
+    fn parse_bit_op(&mut self, ctx: &mut Context, mode: BitOpMode) -> Result<Instruction, ()> {
         let span_start = self.current.span();
-        let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::new(
-            InstructionKind::BitAnd { src, dst },
+        let (dst, src) = self.parse_bitop_common(ctx)?;
+
+        let kind = match mode {
+            BitOpMode::And => InstructionKind::And { src, dst },
+            BitOpMode::Or => InstructionKind::Or { src, dst },
+            BitOpMode::Xor => InstructionKind::Xor { src, dst },
+
+            BitOpMode::Xand => InstructionKind::Nand { src, dst },
+            BitOpMode::Nor => InstructionKind::Nor { src, dst },
+            BitOpMode::Xnor => InstructionKind::XNor { src, dst },
+
+            BitOpMode::Swap => InstructionKind::Swap { src, dst },
+
+            BitOpMode::NotSrc => InstructionKind::NotSrc { src, dst },
+
+            BitOpMode::SrcAndNotDst => InstructionKind::SrcAndNotDst { src, dst },
+            BitOpMode::NotSrcAndDst => InstructionKind::NotSrcAndDst { src, dst },
+            BitOpMode::SrcOrNotDst => InstructionKind::SrcOrNotDst { src, dst },
+            BitOpMode::NotSrcOrDst => InstructionKind::NotSrcOrDst { src, dst },
+            _ => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("tried parsing a binary bitwise op as a unary one"),
+                    self.current.span(),
+                ));
+                return Err(());
+            }
+        };
+
+        Ok(Instruction::new(
+            kind,
             Span::between(span_start, src.span()),
-        )
+        ))
     }
 
-    fn parse_or(&mut self, ctx: &mut Context) -> Instruction {
-        let span_start = self.current.span();
-        let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::new(
-            InstructionKind::BitOr { src, dst },
-            Span::between(span_start, src.span()),
-        )
-    }
-
-    fn parse_xor(&mut self, ctx: &mut Context) -> Instruction {
-        let span_start = self.current.span();
-        let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::new(
-            InstructionKind::BitXor { src, dst },
-            Span::between(span_start, src.span()),
-        )
-    }
-
-    fn parse_nand(&mut self, ctx: &mut Context) -> Instruction {
-        let span_start = self.current.span();
-        let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::new(
-            InstructionKind::BitNand { src, dst },
-            Span::between(span_start, src.span()),
-        )
-    }
-
-    fn parse_nor(&mut self, ctx: &mut Context) -> Instruction {
-        let span_start = self.current.span();
-        let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::new(
-            InstructionKind::BitNor { src, dst },
-            Span::between(span_start, src.span()),
-        )
-    }
-
-    fn parse_xnor(&mut self, ctx: &mut Context) -> Instruction {
-        let span_start = self.current.span();
-        let (dst, src) = self.parse_bitop_common(ctx);
-        Instruction::new(
-            InstructionKind::BitXnor { src, dst },
-            Span::between(span_start, src.span()),
-        )
-    }
-
-    fn parse_unary_not(&mut self, ctx: &mut Context) -> Instruction {
+    fn parse_bit_op_unary(&mut self, ctx: &mut Context, mode: BitOpMode) -> Result<Instruction, ()> {
         let span_start = self.current.span();
         self.bump();
+
+        if self.eat(&TokenKind::Dot) {
+            ctx.add_diag(Diagnostic::new(
+                String::from("bitwise operands do not take a size parameter"),
+                self.current.span(),
+            ));
+            return Err(());
+        }
+
         let mut was_err = false;
         let dst = self.parse_reg().unwrap_or_else(|d| {
             ctx.add_diag(d);
@@ -683,15 +708,28 @@ impl<'a> Parser<'a> {
         // the dst must be a writable register
         if !was_err && !dst.is_gpr() {
             ctx.add_diag(Diagnostic::new(
-                format!("expected dst to be a writable register, got {}", dst),
+                format!("expected dst to be a writable register, got {dst}"),
                 dst.span(),
             ));
         }
 
-        Instruction::new(
-            InstructionKind::UnaryBitNot { dst },
+        let kind = match mode {
+            BitOpMode::NotDst => InstructionKind::NotDst { dst },
+            BitOpMode::One => InstructionKind::One { dst },
+            BitOpMode::All => InstructionKind::All { dst },
+            _ => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("tried parsing a unary bitwise op as a binary one"),
+                    self.current.span(),
+                ));
+                return Err(());
+            }
+        };
+
+        Ok(Instruction::new(
+            kind,
             Span::between(span_start, dst.span()),
-        )
+        ))
     }
 
     // =======================
@@ -781,7 +819,7 @@ impl<'a> Parser<'a> {
         // the dst must be a writable register
         if !was_reg_err && !dst.is_gpr() {
             ctx.add_diag(Diagnostic::new(
-                format!("expected dst to be a writable register, got {}", dst),
+                format!("expected dst to be a writable register, got {dst}"),
                 dst.span(),
             ));
         }
@@ -873,7 +911,7 @@ impl<'a> Parser<'a> {
         // the dst must be a writable register
         if !was_reg_err && !dst.is_gpr() {
             ctx.add_diag(Diagnostic::new(
-                format!("expected dst to be a writable register, got {}", dst),
+                format!("expected dst to be a writable register, got {dst}"),
                 dst.span(),
             ));
         }
@@ -885,8 +923,16 @@ impl<'a> Parser<'a> {
     /// this does not need to have three arguments because all bitwise operations
     /// can be executed with the lhs and rhs in either order.
     /// returns (dst, src)
-    fn parse_bitop_common(&mut self, ctx: &mut Context) -> (RegSelector, RegSelector) {
+    fn parse_bitop_common(&mut self, ctx: &mut Context) -> Result<(RegSelector, RegSelector), ()> {
         self.bump();
+
+        if self.eat(&TokenKind::Dot) {
+            ctx.add_diag(Diagnostic::new(
+                String::from("bitwise operands do not take a size parameter"),
+                self.current.span(),
+            ));
+            return Err(());
+        }
 
         let mut was_reg_err = false;
         let dst = self.parse_reg().unwrap_or_else(|d| {
@@ -914,12 +960,12 @@ impl<'a> Parser<'a> {
         // the dst must be a writable register
         if !was_reg_err && !dst.is_gpr() {
             ctx.add_diag(Diagnostic::new(
-                format!("expected dst to be a writable register, got {}", dst),
+                format!("expected dst to be a writable register, got {dst}"),
                 dst.span(),
             ));
         }
 
-        (dst, src)
+        Ok((dst, src))
     }
 
     fn parse_move_operand(&mut self, ctx: &mut Context) -> Result<LoadStoreOp, ()> {
@@ -990,10 +1036,10 @@ impl<'a> Parser<'a> {
                     Ok(idx) if idx <= MAX_REG_IDX => idx,
                     _ => {
                         return Err(Diagnostic::new(
-                            format!("invalid register `{}`", idx),
+                            format!("invalid register `{idx}`"),
                             self.current.span(),
                         )
-                        .with_note(format!("maximum register index is {}", MAX_REG_IDX)))
+                        .with_note(format!("maximum register index is {MAX_REG_IDX}")))
                     }
                 };
                 RegSelector::new_gpr(idx, span)
@@ -1003,16 +1049,16 @@ impl<'a> Parser<'a> {
                 Ok(idx) if idx <= MAX_REG_IDX => idx,
                 _ => {
                     return Err(Diagnostic::new(
-                        format!("invalid register `{}`", idx),
+                        format!("invalid register `{idx}`"),
                         self.current.span(),
                     )
-                    .with_note(format!("maximum register index is {}", MAX_REG_IDX)))
+                    .with_note(format!("maximum register index is {MAX_REG_IDX}")))
                 }
             };
             RegSelector::new_const(idx, span)
         } else {
             return Err(Diagnostic::new(
-                format!("invalid register `{}`", name),
+                format!("invalid register `{name}`"),
                 self.current.span(),
             ));
         };
@@ -1132,7 +1178,7 @@ impl<'a> Parser<'a> {
                         'w' => 0b11,
                         _ => {
                             ctx.add_diag(Diagnostic::new(
-                                format!("invalid register selector {}", select_str),
+                                format!("invalid register selector {select_str}"),
                                 ident_span,
                             ));
                             return Err(());
@@ -1145,7 +1191,7 @@ impl<'a> Parser<'a> {
                         if selector.set(idx as u8) {
                             // NOTE: duplicate selectors are not an immediate return, just ignored for recovery
                             ctx.add_diag(Diagnostic::new(
-                                format!("`{}` already present in selector", c),
+                                format!("`{c}` already present in selector"),
                                 ident_span,
                             ));
                         }
@@ -1265,7 +1311,7 @@ impl<'a> Parser<'a> {
         match self.current.kind() {
             TokenKind::Ident(s) => Ok(s.clone()),
             other => Err(Diagnostic::new(
-                format!("expected identifier, found `{}`", other),
+                format!("expected identifier, found `{other}`"),
                 self.current.span(),
             )),
         }
@@ -1306,6 +1352,30 @@ enum CmpMode {
     LessU,
     GreaterEqU,
     LessEqU,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BitOpMode {
+    One,
+    All,
+
+    And,
+    Or,
+    Xor,
+
+    Xand,
+    Nor,
+    Xnor,
+
+    Swap,
+
+    NotSrc,
+    NotDst,
+
+    SrcAndNotDst,
+    NotSrcAndDst,
+    SrcOrNotDst,
+    NotSrcOrDst,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

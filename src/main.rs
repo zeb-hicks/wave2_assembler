@@ -1,4 +1,5 @@
 #![feature(debug_closure_helpers)]
+#![allow(clippy::uninlined_format_args)]
 
 use clap::Parser as _;
 use eyre::Context as _;

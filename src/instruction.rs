@@ -86,6 +86,9 @@ pub enum InstructionKind {
     RotateLeft { size: OpSize, dst: RegSelector, amount: ShiftAmount, },
     RotateRight { size: OpSize, dst: RegSelector, amount: ShiftAmount, },
 
+    // =================
+    // SPEC OPS
+    // =================
     HorizontalAdd { src: RegSelector, dst: RegSelector, },
     MultiplySaturate { src: RegSelector, dst: RegSelector, },
     MultiplyLow { src: RegSelector, dst: RegSelector, },
@@ -96,15 +99,21 @@ pub enum InstructionKind {
     // =================
     // BITOPS
     // =================
-    BitAnd { src: RegSelector, dst: RegSelector, },
-    BitOr { src: RegSelector, dst: RegSelector, },
-    BitXor { src: RegSelector, dst: RegSelector, },
-    BitNand { src: RegSelector, dst: RegSelector, },
-
-    BitNor { src: RegSelector, dst: RegSelector, },
-    BitXnor { src: RegSelector, dst: RegSelector, },
-    UnaryBitNot { dst: RegSelector, },
-    // TODO: System, SpecOp
+    All { dst: RegSelector, },
+    One { dst: RegSelector, },
+    Swap { src: RegSelector, dst: RegSelector, },
+    NotSrc { src: RegSelector, dst: RegSelector, },
+    NotDst { dst: RegSelector, },
+    SrcAndNotDst { src: RegSelector, dst: RegSelector, },
+    NotSrcAndDst { src: RegSelector, dst: RegSelector, },
+    SrcOrNotDst { src: RegSelector, dst: RegSelector, },
+    NotSrcOrDst { src: RegSelector, dst: RegSelector, },
+    And { src: RegSelector, dst: RegSelector, },
+    Or { src: RegSelector, dst: RegSelector, },
+    Xor { src: RegSelector, dst: RegSelector, },
+    Nand { src: RegSelector, dst: RegSelector, },
+    Nor { src: RegSelector, dst: RegSelector, },
+    XNor { src: RegSelector, dst: RegSelector, },
 
     Raw { val: u16, }
 }
@@ -183,8 +192,9 @@ impl fmt::Debug for RegSelector {
             .field(
                 "reg",
                 &match self.idx {
-                    n @ 0..=7 => format!("c{}", n),
+                    n @ 0..=7 => format!("c{n}"),
                     n @ 8..=14 => format!("r{}", n - DATA_IDX_OFFSET),
+                    #[allow(clippy::useless_format)]
                     15 => format!("ri"),
                     _ => unreachable!(),
                 },
@@ -197,7 +207,7 @@ impl fmt::Debug for RegSelector {
 impl fmt::Display for RegSelector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.idx {
-            n @ 0..=7 => write!(f, "c{}", n),
+            n @ 0..=7 => write!(f, "c{n}"),
             n @ 8..=14 => write!(f, "r{}", n - DATA_IDX_OFFSET),
             15 => write!(f, "ri"),
             _ => unreachable!(),

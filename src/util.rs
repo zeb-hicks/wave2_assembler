@@ -28,6 +28,7 @@ impl<'a> LowerHex for CodePrinter<'a> {
             write!(f, "{item:04x}")?;
             count += 1;
             if count % 16 == 0 {
+                #[allow(clippy::write_with_newline)]
                 write!(f, "\n")?;
             } else {
                 write!(f, " ")?;

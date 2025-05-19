@@ -111,5 +111,5 @@ xor r2, r3               ; r2 = r2 ^ r3
 nand r2, r3              ; r2 = not (r2 & r3)
 nor r2, r3               ; r2 = not (r2 | r3)
 xnor r2, r3              ; r2 = not (r2 ^ r3)
-not r3                   ; r3 = !r3
+notdst r3                   ; r3 = !r3
 ; TODO: how to express dst = notsrc?

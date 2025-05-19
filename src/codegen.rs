@@ -127,7 +127,6 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
             wselect_ops::WMOVE | src.selector().bits() << 2,
             opcode::WSELECT,
         )],
-
         Add { size, src, dst } => vec![math_op(math_ops::ADD, size, src, dst)],
         Sub { size, src, dst } => vec![math_op(math_ops::SUB, size, src, dst)],
         RSub { size, src, dst } => vec![math_op(math_ops::RSUB, size, src, dst)],
@@ -144,7 +143,6 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
         SubOver { size, src, dst } => vec![math_op(math_ops::SUB_OVER, size, src, dst)],
         RSubOver { size, src, dst } => vec![math_op(math_ops::RSUB_OVER, size, src, dst)],
         LessEqU { size, src, dst } => vec![math_op(math_ops::LESS_EQ_U, size, src, dst)],
-
         HorizontalAdd { src, dst } => vec![op_from_parts(
             dst.idx(),
             src.idx(),
@@ -181,7 +179,6 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
             spec_ops::RECIPROCAL_DIVIDE,
             opcode::SPECOP,
         )],
-
         ShiftLeft { size, dst, amount } => vec![shift_op(shift_ops::LEFT_SHIFT, size, dst, amount)],
         ShiftRightLogical { size, dst, amount } => {
             vec![shift_op(shift_ops::LOGICAL_RIGHT_SHIFT, size, dst, amount)]
@@ -200,44 +197,96 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
         RotateRight { size, dst, amount } => {
             vec![shift_op(shift_ops::ROTATE_RIGHT, size, dst, amount)]
         }
-
-        BitAnd { src, dst } => vec![op_from_parts(
+        And { src, dst } => vec![op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::AND,
             opcode::BITOP,
         )],
-        BitOr { src, dst } => vec![op_from_parts(
+        Or { src, dst } => vec![op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::OR,
             opcode::BITOP,
         )],
-        BitXor { src, dst } => vec![op_from_parts(
+        Xor { src, dst } => vec![op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::XOR,
             opcode::BITOP,
         )],
-        BitNand { src, dst } => vec![op_from_parts(
+        Nand { src, dst } => vec![op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::NAND,
             opcode::BITOP,
         )],
-        BitNor { src, dst } => vec![op_from_parts(
+        Nor { src, dst } => vec![op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::NOR,
             opcode::BITOP,
         )],
-        BitXnor { src, dst } => vec![op_from_parts(
+        XNor { src, dst } => vec![op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::XNOR,
             opcode::BITOP,
         )],
-        UnaryBitNot { dst } => vec![op_from_parts(dst.idx(), 0, bit_ops::NOT_DST, opcode::BITOP)],
+        NotDst { dst } => vec![op_from_parts(
+            dst.idx(),
+            0,
+            bit_ops::NOT_DST,
+            opcode::BITOP
+        )],
+        NotSrc { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            bit_ops::NOT_SRC,
+            opcode::BITOP
+        )],
+        SrcAndNotDst { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            bit_ops::SRC_AND_NOT_DST,
+            opcode::BITOP
+        )],
+        NotSrcAndDst { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            bit_ops::NOT_SRC_AND_DST,
+            opcode::BITOP
+        )],
+        SrcOrNotDst { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            bit_ops::SRC_OR_NOT_DST,
+            opcode::BITOP
+        )],
+        NotSrcOrDst { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            bit_ops::NOT_SRC_OR_DST,
+            opcode::BITOP
+        )],
+        All { dst } => vec![op_from_parts(
+            dst.idx(),
+            0,
+            bit_ops::ALL,
+            opcode::BITOP
+        )],
+        One { dst } => vec![op_from_parts(
+            dst.idx(),
+            0,
+            bit_ops::ONE,
+            opcode::BITOP
+        )],
+        Swap { src, dst } => vec![op_from_parts(
+            dst.idx(),
+            src.idx(),
+            bit_ops::SWAP,
+            opcode::BITOP,
+        )],
         Raw { val } => vec![val],
     }
 }
@@ -326,13 +375,34 @@ mod shift_ops {
 }
 
 mod bit_ops {
-    pub(super) const AND: u8 = 0b1000;
-    pub(super) const OR: u8 = 0b1110;
-    pub(super) const XOR: u8 = 0b0110;
-    pub(super) const NAND: u8 = 0b0111;
-    pub(super) const NOR: u8 = 0b0001;
-    pub(super) const XNOR: u8 = 0b1001;
-    pub(super) const NOT_DST: u8 = 0b0011;
+    // pub(super) const AND: u8 = 0b1000;
+    // pub(super) const OR: u8 = 0b1110;
+    // pub(super) const XOR: u8 = 0b0110;
+    // pub(super) const NAND: u8 = 0b0111;
+    // pub(super) const NOR: u8 = 0b0001;
+    // pub(super) const XNOR: u8 = 0b1001;
+    // pub(super) const NOT_DST: u8 = 0b0011;
+
+    pub(super) const ONE: u8 = 0x0;
+    pub(super) const ALL: u8 = 0xf;
+
+    pub(super) const AND: u8 = 0x8;
+    pub(super) const OR:  u8 = 0xe;
+    pub(super) const XOR: u8 = 0x6;
+
+    pub(super) const NAND: u8 = 0x7;
+    pub(super) const NOR:  u8 = 0x1;
+    pub(super) const XNOR: u8 = 0x9;
+
+    pub(super) const SWAP: u8 = 0xA;
+
+    pub(super) const NOT_SRC: u8 = 0x5;
+    pub(super) const NOT_DST: u8 = 0x3;
+
+    pub(super) const SRC_AND_NOT_DST: u8 = 0x2;
+    pub(super) const NOT_SRC_AND_DST: u8 = 0x4;
+    pub(super) const SRC_OR_NOT_DST: u8 = 0xB;
+    pub(super) const NOT_SRC_OR_DST: u8 = 0xD;
 }
 
 mod spec_ops {
