@@ -1,3 +1,5 @@
+use std::hash::{DefaultHasher, Hash, Hasher};
+
 use log::*;
 
 use crate::instruction::Instruction;
@@ -16,18 +18,29 @@ pub struct Parser<'a> {
     current: Token,
 }
 
+pub fn hash_label(label: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    label.hash(&mut hasher);
+    hasher.finish()
+}
+
 impl<'a> Parser<'a> {
-    pub fn new(src: &'a str) -> Self {
+    pub fn new(src: &'a str) -> Result<Self, Diagnostic> {
         let mut lexer = Lexer::new(src);
-        let current = lexer.next_token();
-        Self { lexer, current }
+        let current = match lexer.next_token() {
+            Ok(token) => token,
+            Err(err) => {
+                return Err(err);
+            }
+        };
+        Ok(Self { lexer, current })
     }
 
-    pub fn parse_inst(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
+    pub fn parse_inst(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, Diagnostic> {
         // eat all newlines before an instruction to ignore empty lines
         // whitespace is ignored entirely, so it does not need to be considered
         while matches!(self.current.kind(), TokenKind::Newline) {
-            self.bump();
+            self.bump(ctx);
         }
 
         if self.current.kind() == &TokenKind::EoF {
@@ -36,7 +49,24 @@ impl<'a> Parser<'a> {
 
         if self.current.kind() == &TokenKind::Literal {
             // Literals are inserted directly into the instruction
-            self.bump();
+            self.bump(ctx);
+        }
+
+        if matches!(self.current.kind(), TokenKind::Label(_)) {
+            let label = match self.expect_label() {
+                Ok(label) => label,
+                Err(e) => {
+                    return Err(e);
+                }
+            };
+            let span = self.current.span();
+
+            self.bump(ctx);
+
+            return Ok(vec![Instruction::new(
+                InstructionKind::Label { label: hash_label(&label) },
+                span,
+            )]);
         }
 
         if matches!(self.current.kind(), TokenKind::Raw(_)) {
@@ -135,8 +165,8 @@ impl<'a> Parser<'a> {
                 // ==========
                 // system ops
                 // ==========
-                "nop" => self.parse_nop(),
-                "hlt" | "halt" => self.parse_halt(),
+                "nop" => self.parse_nop(ctx),
+                "hlt" | "halt" => self.parse_halt(ctx),
                 "slp" | "sleep" => self.parse_sleep(ctx),
 
                 // ==========
@@ -167,7 +197,7 @@ impl<'a> Parser<'a> {
         // eat until newline to prevent cascading errors
         if ctx.had_errs() {
             while !matches!(self.current.kind(), TokenKind::Newline | TokenKind::EoF) {
-                self.bump();
+                self.bump(ctx);
             }
         }
 
@@ -175,11 +205,16 @@ impl<'a> Parser<'a> {
             warn!("parsing encountered \"fatal\" error starting at {span_start:?}, this probably should not happen");
         }
 
-        ret
+        let ret = match ret {
+            Ok(inst) => inst,
+            Err(_) => vec![],
+        };
+
+        Ok(ret)
     }
 
     fn parse_skip(&mut self, ctx: &mut Context, count: usize) -> Vec<Instruction> {
-        self.bump();
+        self.bump(ctx);
 
         vec![Instruction::new(InstructionKind::Raw { val: match count {
             1 => 0x0fd6,
@@ -197,25 +232,25 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_set(&mut self, ctx: &mut Context, count: usize) -> Vec<Instruction> {
-        self.bump();
+        self.bump(ctx);
 
         // First operand must be a writeable register
-        let reg = self.parse_reg().unwrap_or_else(|d| {
+        let dst = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
         // Make sure it's writeable
-        if !reg.is_gpr() {
+        if !dst.is_gpr() {
             ctx.add_diag(Diagnostic::new(
-                format!("expected dst to be a writable register, got {}", reg.idx()),
-                reg.span(),
+                format!("expected dst to be a writable register, got {}", dst.idx()),
+                dst.span(),
             ));
         }
 
         // Construct the store instruction (load reg.xyzw, [ri.x+])
-        let reg = (reg.idx() as u16) << 12;
+        let reg = (dst.idx() as u16) << 12;
         let mut ivec = vec![Instruction::new(InstructionKind::Raw { val: match count {
             1 => 0xfd6 | reg,
             2 => 0xf96 | reg,
@@ -232,13 +267,21 @@ impl<'a> Parser<'a> {
 
         // Parse in the literal values
         for _ in 0..count {
-            if !self.eat(&TokenKind::Comma) {
+            if !self.eat(ctx, &TokenKind::Comma) {
                 continue;
             }
             match self.current.kind() {
+                TokenKind::Label(label) => {
+                    return vec![
+                        Instruction::new(
+                            InstructionKind::LabelSet { dst: dst, label: hash_label(label) },
+                            self.current.span(),
+                        ),
+                    ];
+                },
                 TokenKind::Number(v) => {
                     let v = *v;
-                    self.bump();
+                    self.bump(ctx);
                     ivec.push(Instruction::new(
                         InstructionKind::Raw { val: v },
                         self.current.span(),
@@ -283,22 +326,26 @@ impl<'a> Parser<'a> {
             self.current.span(),
         );
 
-        self.bump();
+        self.bump(ctx);
 
-        let num = match self.current.kind() {
+        let k = match &self.current.kind() {
+            TokenKind::Label(label) => {
+                InstructionKind::LabelJump { label: hash_label(label) }
+            },
             TokenKind::Number(num) => {
-                let num = *num;
-                self.bump();
-                num
-            }
+                // self.bump(ctx);
+                InstructionKind::Raw { val: *num }
+            },
             _ => {
                 ctx.add_diag(Diagnostic::new(
                     String::from("expected a number as jump offset"),
                     self.current.span(),
                 ));
-                0u16
+                InstructionKind::Raw { val: 0 }
             }
         };
+
+        self.bump(ctx);
 
         let span = match Span::between(span_start, self.current.span()) {
             Ok(span) => span,
@@ -312,31 +359,31 @@ impl<'a> Parser<'a> {
         };
 
         let lit = Instruction::new(
-            InstructionKind::Raw { val: num },
+            k,
             span,
         );
 
         vec![mov, lit]
     }
 
-    fn parse_nop(&mut self) -> Vec<Instruction> {
-        self.bump();
+    fn parse_nop(&mut self, ctx: &mut Context) -> Vec<Instruction> {
+        self.bump(ctx);
         vec![Instruction::new(InstructionKind::Nop, self.current.span())]
     }
 
-    fn parse_halt(&mut self) -> Vec<Instruction> {
-        self.bump();
+    fn parse_halt(&mut self, ctx: &mut Context) -> Vec<Instruction> {
+        self.bump(ctx);
         vec![Instruction::new(InstructionKind::Halt, self.current.span())]
     }
 
-    fn parse_literal_raw(&mut self, ctx: &mut Context) -> Result<Instruction, ()> {
+    fn parse_literal_raw(&mut self, ctx: &mut Context) -> Result<Instruction, Diagnostic> {
         let span_start = self.current.span();
-        // self.bump();
+        // self.bump(ctx);
 
         let raw = match self.current.kind() {
             TokenKind::Raw(val) => {
                 let val = *val;
-                self.bump();
+                self.bump(ctx);
                 val
             },
             _ => {
@@ -366,12 +413,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_sleep(&mut self, ctx: &mut Context) -> Vec<Instruction> {
-        self.bump();
-        if !self.eat(&TokenKind::Dot) {
+        self.bump(ctx);
+        if !self.eat(ctx, &TokenKind::Dot) {
             let ticks = match self.current.kind() {
                 TokenKind::Number(num) => {
                     let num = *num;
-                    self.bump();
+                    self.bump(ctx);
                     num as u8
                 }
                 _ => {
@@ -403,7 +450,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        let reg = self.parse_reg().unwrap_or_else(|d| {
+        let reg = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
@@ -418,11 +465,11 @@ impl<'a> Parser<'a> {
 
     fn parse_move(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
-        self.bump();
+        self.bump(ctx);
 
         let dst = self.parse_move_operand(ctx)?;
 
-        if !self.eat(&TokenKind::Comma) {
+        if !self.eat(ctx, &TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between dst and src"),
                 self.current.span(),
@@ -494,7 +541,7 @@ impl<'a> Parser<'a> {
 
     fn parse_swizzle(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
-        self.bump();
+        self.bump(ctx);
 
         let dst = self.parse_swizzle_reg(ctx)?;
         // the dst must be a writable register
@@ -524,15 +571,15 @@ impl<'a> Parser<'a> {
 
     fn parse_wselect(&mut self, ctx: &mut Context, mode: WSelectMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
-        self.bump();
+        self.bump(ctx);
 
-        let dst = self.parse_reg().unwrap_or_else(|d| {
+        let dst = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
-        if !self.eat(&TokenKind::Comma) {
+        if !self.eat(ctx, &TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between dst and src"),
                 self.current.span(),
@@ -781,15 +828,15 @@ impl<'a> Parser<'a> {
 
     fn parse_spec(&mut self, ctx: &mut Context, mode: SpecOpMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
-        self.bump();
+        self.bump(ctx);
 
-        let lhs = self.parse_reg().unwrap_or_else(|d| {
+        let lhs = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
-        if !self.eat(&TokenKind::Comma) {
+        if !self.eat(ctx, &TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between lhs and rhs"),
                 self.current.span(),
@@ -797,7 +844,7 @@ impl<'a> Parser<'a> {
             // allow recovery by not returning
         }
 
-        let rhs = self.parse_reg().unwrap_or_else(|d| {
+        let rhs = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
@@ -983,9 +1030,9 @@ impl<'a> Parser<'a> {
 
     fn parse_bit_op_unary(&mut self, ctx: &mut Context, mode: BitOpMode) -> Result<Vec<Instruction>, ()> {
         let span_start = self.current.span();
-        self.bump();
+        self.bump(ctx);
 
-        if self.eat(&TokenKind::Dot) {
+        if self.eat(ctx, &TokenKind::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("bitwise operands do not take a size parameter"),
                 self.current.span(),
@@ -994,7 +1041,7 @@ impl<'a> Parser<'a> {
         }
 
         let mut was_err = false;
-        let dst = self.parse_reg().unwrap_or_else(|d| {
+        let dst = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             was_err = true;
             // use a dummy selector to allow recovery
@@ -1047,9 +1094,9 @@ impl<'a> Parser<'a> {
         ctx: &mut Context,
     ) -> Result<(OpSize, RegSelector, RegSelector, RegSelector), ()> {
         let span_start = self.current.span();
-        self.bump();
+        self.bump(ctx);
 
-        if !self.eat(&TokenKind::Dot) {
+        if !self.eat(ctx, &TokenKind::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("math operands need a `.b` or `.w` to specify size"),
                 self.current.span(),
@@ -1073,16 +1120,16 @@ impl<'a> Parser<'a> {
                 return Err(());
             }
         };
-        self.bump();
+        self.bump(ctx);
 
         let mut was_reg_err = true;
-        let dst = self.parse_reg().unwrap_or_else(|d| {
+        let dst = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
         });
-        if !self.eat(&TokenKind::Comma) {
+        if !self.eat(ctx, &TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between dst and lhs"),
                 self.current.span(),
@@ -1090,13 +1137,13 @@ impl<'a> Parser<'a> {
             // allow recovery by not returning
         }
 
-        let lhs = self.parse_reg().unwrap_or_else(|d| {
+        let lhs = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
         });
-        if !self.eat(&TokenKind::Comma) {
+        if !self.eat(ctx, &TokenKind::Comma) {
             if matches!(self.current.kind(), TokenKind::Newline) {
                 // the user probably assumed this was a two argument math op of the form dst, src
                 // but it actually is three, dst, lhs, rhs
@@ -1115,7 +1162,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        let rhs = self.parse_reg().unwrap_or_else(|d| {
+        let rhs = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
@@ -1137,9 +1184,9 @@ impl<'a> Parser<'a> {
         &mut self,
         ctx: &mut Context,
     ) -> Result<(OpSize, RegSelector, ShiftAmount), ()> {
-        self.bump();
+        self.bump(ctx);
 
-        if !self.eat(&TokenKind::Dot) {
+        if !self.eat(ctx, &TokenKind::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("math operands need a `.b` or `.w` to specify size"),
                 self.current.span(),
@@ -1163,18 +1210,18 @@ impl<'a> Parser<'a> {
                 return Err(());
             }
         };
-        self.bump();
+        self.bump(ctx);
 
         let mut was_reg_err = false;
         // if there was an error parsing the dst register, use a dummy selector
         // to allow parsing to continue
-        let dst = self.parse_reg().unwrap_or_else(|d| {
+        let dst = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             was_reg_err = true;
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
-        if !self.eat(&TokenKind::Comma) {
+        if !self.eat(ctx, &TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between lhs and rhs"),
                 self.current.span(),
@@ -1183,7 +1230,7 @@ impl<'a> Parser<'a> {
         }
 
         let amount = match self.current.kind() {
-            TokenKind::Ident(_) => ShiftAmount::Register(self.parse_reg().unwrap_or_else(|d| {
+            TokenKind::Ident(_) => ShiftAmount::Register(self.parse_reg(ctx).unwrap_or_else(|d| {
                 ctx.add_diag(d);
                 was_reg_err = true;
                 // use a dummy selector to allow recovery
@@ -1192,7 +1239,7 @@ impl<'a> Parser<'a> {
             TokenKind::Number(num) => {
                 let span = self.current.span();
                 let num = *num;
-                self.bump();
+                self.bump(ctx);
 
                 if num > 0b1111 {
                     ctx.add_diag(Diagnostic::new(
@@ -1230,9 +1277,9 @@ impl<'a> Parser<'a> {
     /// can be executed with the lhs and rhs in either order.
     /// returns (dst, src)
     fn parse_bitop_common(&mut self, ctx: &mut Context) -> Result<(RegSelector, RegSelector), ()> {
-        self.bump();
+        self.bump(ctx);
 
-        if self.eat(&TokenKind::Dot) {
+        if self.eat(ctx, &TokenKind::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("bitwise operands do not take a size parameter"),
                 self.current.span(),
@@ -1241,14 +1288,14 @@ impl<'a> Parser<'a> {
         }
 
         let mut was_reg_err = false;
-        let dst = self.parse_reg().unwrap_or_else(|d| {
+        let dst = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
-        if !self.eat(&TokenKind::Comma) {
+        if !self.eat(ctx, &TokenKind::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between dst and src"),
                 self.current.span(),
@@ -1256,7 +1303,7 @@ impl<'a> Parser<'a> {
             // allow recovery by not returning
         }
 
-        let src = self.parse_reg().unwrap_or_else(|d| {
+        let src = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             was_reg_err = true;
             // use a dummy selector to allow recovery
@@ -1276,7 +1323,7 @@ impl<'a> Parser<'a> {
 
     fn parse_move_operand(&mut self, ctx: &mut Context) -> Result<LoadStoreOp, ()> {
         let span_start = self.current.span();
-        let is_mem = self.eat(&TokenKind::LeftBracket);
+        let is_mem = self.eat(ctx, &TokenKind::LeftBracket);
 
         // memory operands must contain their selector in order starting with X
         // since they must be precisely x or xyzw
@@ -1303,9 +1350,9 @@ impl<'a> Parser<'a> {
                 // recover with the invalid selector
             }
 
-            let increment = self.eat(&TokenKind::Plus);
+            let increment = self.eat(ctx, &TokenKind::Plus);
 
-            if !self.eat(&TokenKind::RightBracket) {
+            if !self.eat(ctx, &TokenKind::RightBracket) {
                 ctx.add_diag(Diagnostic::new(
                     String::from("missing `]` after memory operand"),
                     self.current.span(),
@@ -1335,7 +1382,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_reg(&mut self) -> Result<RegSelector, Diagnostic> {
+    fn parse_reg(&mut self, ctx: &mut Context) -> Result<RegSelector, Diagnostic> {
         let span = self.current.span();
         let name = self.expect_ident().map_err(|d| {
             Diagnostic::new(
@@ -1378,7 +1425,7 @@ impl<'a> Parser<'a> {
                 self.current.span(),
             ));
         };
-        self.bump();
+        self.bump(ctx);
         Ok(reg)
     }
 
@@ -1387,11 +1434,11 @@ impl<'a> Parser<'a> {
         ctx: &mut Context,
         select_mode: SelectorMode,
     ) -> Result<SetRegSelector, ()> {
-        let reg = self.parse_reg().map_err(|d| {
+        let reg = self.parse_reg(ctx).map_err(|d| {
             ctx.add_diag(d);
         })?;
 
-        // if !self.eat(&TokenKind::Dot) {
+        // if !self.eat(ctx, &TokenKind::Dot) {
         //     // Assume xyzw as default
         //     ctx.add_diag(Diagnostic::new(
         //         String::from("expected a `.` between a register name and its element selector"),
@@ -1400,7 +1447,7 @@ impl<'a> Parser<'a> {
         //     return Err(());
         // }
 
-        let selector = if self.eat(&TokenKind::Dot) {
+        let selector = if self.eat(ctx, &TokenKind::Dot) {
             self.parse_set_selector(ctx, select_mode)?
         } else {
             // Assume xyzw as default
@@ -1426,11 +1473,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_swizzle_reg(&mut self, ctx: &mut Context) -> Result<SwizzleRegSelector, ()> {
-        let reg = self.parse_reg().map_err(|d| {
+        let reg = self.parse_reg(ctx).map_err(|d| {
             ctx.add_diag(d);
         })?;
 
-        if !self.eat(&TokenKind::Dot) {
+        if !self.eat(ctx, &TokenKind::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("expected a `.` between a register name and its element selector"),
                 self.current.span(),
@@ -1459,11 +1506,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_swizzle_single_reg(&mut self, ctx: &mut Context) -> Result<SwizzleRegSelector, ()> {
-        let reg = self.parse_reg().map_err(|d| {
+        let reg = self.parse_reg(ctx).map_err(|d| {
             ctx.add_diag(d);
         })?;
 
-        if !self.eat(&TokenKind::Dot) {
+        if !self.eat(ctx, &TokenKind::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("expected a `.` between a register name and its element selector"),
                 self.current.span(),
@@ -1505,7 +1552,7 @@ impl<'a> Parser<'a> {
             .to_ascii_lowercase();
         let ident_span = self.current.span();
 
-        self.bump();
+        self.bump(ctx);
         if select_str.len() > 4 {
             ctx.add_diag(Diagnostic::new(
                 String::from("too many selectors"),
@@ -1583,7 +1630,7 @@ impl<'a> Parser<'a> {
             .to_ascii_lowercase();
         let ident_span = self.current.span();
 
-        self.bump();
+        self.bump(ctx);
         if select_str.len() > 4 {
             ctx.add_diag(Diagnostic::new(
                 String::from("too many selectors"),
@@ -1622,7 +1669,7 @@ impl<'a> Parser<'a> {
             .to_ascii_lowercase();
         let ident_span = self.current.span();
 
-        self.bump();
+        self.bump(ctx);
         if select_str.len() > 1 {
             ctx.add_diag(Diagnostic::new(
                 String::from("too many selectors"),
@@ -1651,9 +1698,25 @@ impl<'a> Parser<'a> {
         Ok(selector)
     }
 
-    fn bump(&mut self) {
-        let current = self.lexer.next_token();
+    fn bump(&mut self, ctx: &mut Context) {
+        let current = match self.lexer.next_token() {
+            Ok(token) => token,
+            Err(err) => {
+                ctx.add_diag(err);
+                return;
+            }
+        };
         self.current = current;
+    }
+
+    fn expect_label(&self) -> Result<String, Diagnostic> {
+        match self.current.kind() {
+            TokenKind::Label(s) => Ok(s.clone()),
+            other => Err(Diagnostic::new(
+                format!("expected label, found `{other}`"),
+                self.current.span(),
+            )),
+        }
     }
 
     fn expect_ident(&self) -> Result<String, Diagnostic> {
@@ -1668,9 +1731,9 @@ impl<'a> Parser<'a> {
 
     /// expects the current token to be a specific kind, and eats it if it matches
     /// returns true if the token was eaten, false otherwise
-    fn eat(&mut self, kind: &TokenKind) -> bool {
+    fn eat(&mut self, ctx: &mut Context, kind: &TokenKind) -> bool {
         if self.current.kind() == kind {
-            self.bump();
+            self.bump(ctx);
             true
         } else {
             false

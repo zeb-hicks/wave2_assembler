@@ -1,92 +1,194 @@
-use crate::instruction::{Instruction, InstructionKind, OpSize, RegSelector, ShiftAmount};
+use std::collections::HashMap;
 
-pub fn gen(insts: &[Instruction]) -> Vec<u16> {
-    insts.iter().flat_map(|i| gen_inst(*i)).collect()
+use crate::{diag::Diagnostic, instruction::{Instruction, InstructionKind, OpSize, RegSelector, ShiftAmount}, lexer::Span};
+
+pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
+    // insts.iter().flat_map(|i| gen_inst(*i)).collect()
+    let mut code = Vec::new();
+    let mut gis: Vec<(u16, GI)> = Vec::new();
+    let mut addr = 0x40;
+
+    let mut labels: HashMap<u64, u16> = HashMap::new();
+
+    // println!("Instructions: {:#?}", insts);
+
+    for inst in insts.iter() {
+        let span = inst.span();
+        let inst_code = gen_inst(inst.clone());
+
+        // Collect all the labels
+        for inst in inst_code.iter() {
+            gis.push((addr, inst.clone()));
+            match inst {
+                GI::Label(label) => {
+                    if labels.contains_key(label) {
+                        return Err(Diagnostic::new(
+                            format!("Duplicate label: {}", label),
+                            span,
+                        ));
+                    }
+                    labels.insert(*label, addr);
+                },
+                GI::JumpToLabel(_) => {
+                    addr += 2;
+                },
+                GI::SetToLabel(_, _) => {
+                    addr += 2;
+                },
+                _ => {
+                    addr += 1;
+                }
+            }
+        }
+
+        // code.append(&mut inst_code);
+        // addr += inst_code.len() as u16;
+    }
+
+    for (_addr, inst) in gis.iter() {
+        match inst {
+            GI::JumpToLabel(label) => {
+                if let Some(addr) = labels.get(label) {
+                    code.push(op_from_parts(
+                        0xf,
+                        0xf,
+                        0x6,
+                        opcode::MOVE,
+                    ));
+                    code.push(*addr);
+                } else {
+                    return Err(Diagnostic::new(
+                        format!("Undefined label: {}", label),
+                        Span::DUMMY,
+                    ));
+                }
+            },
+            GI::SetToLabel(dst, label) => {
+                if let Some(addr) = labels.get(label) {
+                    code.push(op_from_parts(
+                        *dst,
+                        0xf,
+                        0x6,
+                        opcode::MOVE,
+                    ));
+                    code.push(*addr);
+                } else {
+                    return Err(Diagnostic::new(
+                        format!("Undefined label: {}", label),
+                        Span::DUMMY,
+                    ));
+                }
+            },
+            GI::Instruction(inst) => {
+                code.push(*inst);
+            },
+            _ => {}
+        }
+    }
+
+    Ok(code)
 }
 
-fn gen_inst(inst: Instruction) -> Vec<u16> {
+#[derive(Debug, Clone)]
+pub enum GI {
+    Instruction(u16),
+    Label(u64),
+    JumpToLabel(u64),
+    SetToLabel(u8, u64),
+}
+
+fn gen_inst(inst: Instruction) -> Vec<GI> {
     use InstructionKind::*;
     match *inst.kind() {
+        Label { label } => {
+            vec![GI::Label(label)]
+        },
+        LabelJump { label } => {
+            vec![GI::JumpToLabel(label)]
+        },
+        LabelSet { dst, label } => {
+            vec![GI::SetToLabel(dst.idx(), label)]
+        },
         Nop => {
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 0,
                 0,
                 1,
                 opcode::SYSTEM,
-            )]
+            ))]
         }
         Halt => {
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 0,
                 0,
                 0,
                 opcode::SYSTEM,
-            )]
+            ))]
         }
         Sleep { ticks } => {
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 0,
                 ticks,
                 1,
                 opcode::SYSTEM,
-            )]
+            ))]
         }
         Sleep8L { src } => {
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 1,
                 src.idx(),
                 1,
                 opcode::SYSTEM,
-            )]
+            ))]
         }
         Sleep8H { src } => {
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 2,
                 src.idx(),
                 1,
                 opcode::SYSTEM,
-            )]
+            ))]
         }
         Sleep16 { src } => {
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 3,
                 src.idx(),
                 1,
                 opcode::SYSTEM,
-            )]
+            ))]
         }
         Move { src, dst } => {
             // place a 1 bit everywhere we want to *not* move
             let skip_mask = src.selector().bits() ^ 0b1111;
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 dst.reg().idx(),
                 src.reg().idx(),
                 skip_mask,
                 opcode::MOVE,
-            )]
+            ))]
         }
         Swizzle { reg } => {
             let bits = reg.selector().bits();
             let source = bits >> 4;
             let extra = bits & 0b1111;
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 reg.reg().idx(),
                 source,
                 extra,
                 opcode::SWIZZLE,
-            )]
+            ))]
         }
         Load { mem, dst } => {
             let size = 4 - dst.selector().bits().count_ones() as u8;
             let scatter = u8::from(mem.scatter());
             let increment = u8::from(mem.increment());
             let extra = (size << 2) | (scatter << 1) | increment;
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 dst.reg().idx(),
                 mem.reg().idx(),
                 extra,
                 opcode::LOAD,
-            )]
+            ))]
         }
         Store { src, mem } => {
             let size = 4 - src.selector().bits().count_ones() as u8;
@@ -96,198 +198,198 @@ fn gen_inst(inst: Instruction) -> Vec<u16> {
             // this uses src as the dest operand and mem as the source operand because
             // both load and store use the source as an address and dest as a value
             // https://github.com/Meisaka/MeiVM2/blob/cd687f44a11bc3a0f318dcb1badb23f1f8dce44f/vm.txt#L64-L65
-            vec![op_from_parts(
+            vec![GI::Instruction(op_from_parts(
                 src.reg().idx(),
                 mem.reg().idx(),
                 extra,
                 opcode::STORE,
-            )]
+            ))]
         }
-        WAdd { src, dst } => vec![op_from_parts(
+        WAdd { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.reg().idx(),
             wselect_ops::WADD | src.selector().bits() << 2,
             opcode::WSELECT,
-        )],
-        WSub { src, dst } => vec![op_from_parts(
+        ))],
+        WSub { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.reg().idx(),
             wselect_ops::WSUB | src.selector().bits() << 2,
             opcode::WSELECT,
-        )],
-        WSwap { src, dst } => vec![op_from_parts(
+        ))],
+        WSwap { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.reg().idx(),
             wselect_ops::WSWAP | src.selector().bits() << 2,
             opcode::WSELECT,
-        )],
-        WMove { src, dst } => vec![op_from_parts(
+        ))],
+        WMove { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.reg().idx(),
             wselect_ops::WMOVE | src.selector().bits() << 2,
             opcode::WSELECT,
-        )],
-        Add { size, src, dst } => vec![math_op(math_ops::ADD, size, src, dst)],
-        Sub { size, src, dst } => vec![math_op(math_ops::SUB, size, src, dst)],
-        RSub { size, src, dst } => vec![math_op(math_ops::RSUB, size, src, dst)],
-        Eq { size, src, dst } => vec![math_op(math_ops::EQ, size, src, dst)],
-        Carry { size, src, dst } => vec![math_op(math_ops::CARRY, size, src, dst)],
-        LessU { size, src, dst } => vec![math_op(math_ops::LESS_U, size, src, dst)],
-        GreaterU { size, src, dst } => vec![math_op(math_ops::GREATER_U, size, src, dst)],
-        NotEq { size, src, dst } => vec![math_op(math_ops::NOTEQ, size, src, dst)],
-        AddSaturate { size, src, dst } => vec![math_op(math_ops::ADD_SAT, size, src, dst)],
-        SubSaturate { size, src, dst } => vec![math_op(math_ops::SUB_SAT, size, src, dst)],
-        SubRevSaturate { size, src, dst } => vec![math_op(math_ops::RSUB_SAT, size, src, dst)],
-        GreaterEqU { size, src, dst } => vec![math_op(math_ops::GREATER_EQ_U, size, src, dst)],
-        AddOver { size, src, dst } => vec![math_op(math_ops::ADD_OVER, size, src, dst)],
-        SubOver { size, src, dst } => vec![math_op(math_ops::SUB_OVER, size, src, dst)],
-        RSubOver { size, src, dst } => vec![math_op(math_ops::RSUB_OVER, size, src, dst)],
-        LessEqU { size, src, dst } => vec![math_op(math_ops::LESS_EQ_U, size, src, dst)],
-        HorizontalAdd { src, dst } => vec![op_from_parts(
+        ))],
+        Add { size, src, dst } => vec![GI::Instruction(math_op(math_ops::ADD, size, src, dst))],
+        Sub { size, src, dst } => vec![GI::Instruction(math_op(math_ops::SUB, size, src, dst))],
+        RSub { size, src, dst } => vec![GI::Instruction(math_op(math_ops::RSUB, size, src, dst))],
+        Eq { size, src, dst } => vec![GI::Instruction(math_op(math_ops::EQ, size, src, dst))],
+        Carry { size, src, dst } => vec![GI::Instruction(math_op(math_ops::CARRY, size, src, dst))],
+        LessU { size, src, dst } => vec![GI::Instruction(math_op(math_ops::LESS_U, size, src, dst))],
+        GreaterU { size, src, dst } => vec![GI::Instruction(math_op(math_ops::GREATER_U, size, src, dst))],
+        NotEq { size, src, dst } => vec![GI::Instruction(math_op(math_ops::NOTEQ, size, src, dst))],
+        AddSaturate { size, src, dst } => vec![GI::Instruction(math_op(math_ops::ADD_SAT, size, src, dst))],
+        SubSaturate { size, src, dst } => vec![GI::Instruction(math_op(math_ops::SUB_SAT, size, src, dst))],
+        SubRevSaturate { size, src, dst } => vec![GI::Instruction(math_op(math_ops::RSUB_SAT, size, src, dst))],
+        GreaterEqU { size, src, dst } => vec![GI::Instruction(math_op(math_ops::GREATER_EQ_U, size, src, dst))],
+        AddOver { size, src, dst } => vec![GI::Instruction(math_op(math_ops::ADD_OVER, size, src, dst))],
+        SubOver { size, src, dst } => vec![GI::Instruction(math_op(math_ops::SUB_OVER, size, src, dst))],
+        RSubOver { size, src, dst } => vec![GI::Instruction(math_op(math_ops::RSUB_OVER, size, src, dst))],
+        LessEqU { size, src, dst } => vec![GI::Instruction(math_op(math_ops::LESS_EQ_U, size, src, dst))],
+        HorizontalAdd { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             spec_ops::HORIZONTAL_ADD,
             opcode::SPECOP,
-        )],
-        MultiplySaturate { src, dst } => vec![op_from_parts(
+        ))],
+        MultiplySaturate { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             spec_ops::MULTIPLY_SAT,
             opcode::SPECOP,
-        )],
-        MultiplyLow { src, dst } => vec![op_from_parts(
+        ))],
+        MultiplyLow { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             spec_ops::MULTIPLY_LOW,
             opcode::SPECOP,
-        )],
-        MultiplyHigh { src, dst }  => vec![op_from_parts(
+        ))],
+        MultiplyHigh { src, dst }  => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             spec_ops::MULTIPLY_HIGH,
             opcode::SPECOP,
-        )],
-        Divide { src, dst } => vec![op_from_parts(
+        ))],
+        Divide { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             spec_ops::DIVIDE,
             opcode::SPECOP,
-        )],
-        ReciprocalDivide { src, dst } => vec![op_from_parts(
+        ))],
+        ReciprocalDivide { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             spec_ops::RECIPROCAL_DIVIDE,
             opcode::SPECOP,
-        )],
-        ShiftLeft { size, dst, amount } => vec![shift_op(shift_ops::LEFT_SHIFT, size, dst, amount)],
+        ))],
+        ShiftLeft { size, dst, amount } => vec![GI::Instruction(shift_op(shift_ops::LEFT_SHIFT, size, dst, amount))],
         ShiftRightLogical { size, dst, amount } => {
-            vec![shift_op(shift_ops::LOGICAL_RIGHT_SHIFT, size, dst, amount)]
+            vec![GI::Instruction(shift_op(shift_ops::LOGICAL_RIGHT_SHIFT, size, dst, amount))]
         }
         ShiftRightArithmetic { size, dst, amount } => {
-            vec![shift_op(
+            vec![GI::Instruction(shift_op(
                 shift_ops::ARITHMETIC_RIGHT_SHIFT,
                 size,
                 dst,
                 amount,
-            )]
+            ))]
         }
         RotateLeft { size, dst, amount } => {
-            vec![shift_op(shift_ops::ROTATE_LEFT, size, dst, amount)]
+            vec![GI::Instruction(shift_op(shift_ops::ROTATE_LEFT, size, dst, amount))]
         }
         RotateRight { size, dst, amount } => {
-            vec![shift_op(shift_ops::ROTATE_RIGHT, size, dst, amount)]
+            vec![GI::Instruction(shift_op(shift_ops::ROTATE_RIGHT, size, dst, amount))]
         }
-        And { src, dst } => vec![op_from_parts(
+        And { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::AND,
             opcode::BITOP,
-        )],
-        Or { src, dst } => vec![op_from_parts(
+        ))],
+        Or { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::OR,
             opcode::BITOP,
-        )],
-        Xor { src, dst } => vec![op_from_parts(
+        ))],
+        Xor { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::XOR,
             opcode::BITOP,
-        )],
-        Nand { src, dst } => vec![op_from_parts(
+        ))],
+        Nand { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::NAND,
             opcode::BITOP,
-        )],
-        Nor { src, dst } => vec![op_from_parts(
+        ))],
+        Nor { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::NOR,
             opcode::BITOP,
-        )],
-        XNor { src, dst } => vec![op_from_parts(
+        ))],
+        XNor { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::XNOR,
             opcode::BITOP,
-        )],
-        NotDst { dst } => vec![op_from_parts(
+        ))],
+        NotDst { dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             0,
             bit_ops::NOT_DST,
             opcode::BITOP
-        )],
-        NotSrc { src, dst } => vec![op_from_parts(
+        ))],
+        NotSrc { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::NOT_SRC,
             opcode::BITOP
-        )],
-        SrcAndNotDst { src, dst } => vec![op_from_parts(
+        ))],
+        SrcAndNotDst { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::SRC_AND_NOT_DST,
             opcode::BITOP
-        )],
-        NotSrcAndDst { src, dst } => vec![op_from_parts(
+        ))],
+        NotSrcAndDst { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::NOT_SRC_AND_DST,
             opcode::BITOP
-        )],
-        SrcOrNotDst { src, dst } => vec![op_from_parts(
+        ))],
+        SrcOrNotDst { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::SRC_OR_NOT_DST,
             opcode::BITOP
-        )],
-        NotSrcOrDst { src, dst } => vec![op_from_parts(
+        ))],
+        NotSrcOrDst { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::NOT_SRC_OR_DST,
             opcode::BITOP
-        )],
-        All { dst } => vec![op_from_parts(
+        ))],
+        All { dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             0,
             bit_ops::ALL,
             opcode::BITOP
-        )],
-        One { dst } => vec![op_from_parts(
+        ))],
+        One { dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             0,
             bit_ops::ONE,
             opcode::BITOP
-        )],
-        Swap { src, dst } => vec![op_from_parts(
+        ))],
+        Swap { src, dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             src.idx(),
             bit_ops::SWAP,
             opcode::BITOP,
-        )],
-        Raw { val } => vec![val],
+        ))],
+        Raw { val } => vec![GI::Instruction(val)],
     }
 }
 

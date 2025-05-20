@@ -1,7 +1,7 @@
 #![allow(clippy::uninlined_format_args)]
 use std::fmt::Display;
 
-use crate::reader::{self, Reader};
+use crate::{diag::Diagnostic, reader::{self, Reader}};
 
 /// this is a different thing from reader to be able to easily separate
 /// the splitting and the getting source mechanisms
@@ -21,7 +21,7 @@ impl<'a> Lexer<'a> {
         }
     }
 
-    pub fn next_token(&mut self) -> Token {
+    pub fn next_token(&mut self) -> Result<Token, Diagnostic> {
         use TokenKind::*;
 
         // loops to skip whitespace
@@ -31,36 +31,50 @@ impl<'a> Lexer<'a> {
             let start_pos = self.pos;
             self.pos += next.len();
 
-            let kind = match next.kind() {
-                reader::TokenKind::Newline => Newline,
+            let kind: Result<TokenKind, String> = match next.kind() {
+                reader::TokenKind::Newline => Ok(Newline),
                 reader::TokenKind::Whitespace | reader::TokenKind::Comment => continue,
-                reader::TokenKind::Ident => Ident(self.src[start_pos..self.pos].to_string()),
-                reader::TokenKind::Number => Number(
-                    self.src[start_pos..self.pos]
-                        .parse()
-                        .expect("lexed number literals should be valid"),
-                ),
-                reader::TokenKind::Hex => Number(
-                    u16::from_str_radix(&self.src[(start_pos+1)..self.pos], 16)
-                        .expect(format!("lexed hex literals should be valid, {}", &self.src[start_pos..self.pos]).as_str()),
-                ),
-                reader::TokenKind::Literal => Literal,
-                reader::TokenKind::Raw => {
-                    let s = self.src[start_pos..self.pos].to_string();
-                    let raw = u16::from_str_radix(&s, 16)
-                        .expect("lexed raw literals should be valid");
-                    Raw(raw)
+                reader::TokenKind::Ident => Ok(Ident(self.src[start_pos..self.pos].to_string())),
+                reader::TokenKind::Number => match self.src[start_pos..self.pos].parse::<u16>() {
+                    Ok(num) => Ok(Number(num)),
+                    Err(_) => Err(format!("Invalid 16-bit number: {}", &self.src[start_pos..self.pos])),
+                },
+                reader::TokenKind::Hex => match u16::from_str_radix(&self.src[(start_pos+1)..self.pos], 16) {
+                    Ok(num) => Ok(Number(num)),
+                    Err(_) => Err(format!("Invalid 16-bit hex: {}", &self.src[(start_pos+1)..self.pos])),
+                },
+                reader::TokenKind::Literal => Ok(Literal),
+                reader::TokenKind::Raw => match u16::from_str_radix(&self.src[start_pos..self.pos].to_string(), 16) {
+                    Ok(raw) => Ok(Raw(raw)),
+                    Err(_) => Err(format!("Error parsing literal: {}", &self.src[start_pos..self.pos])),
                 }
-                reader::TokenKind::EoF => EoF,
-                reader::TokenKind::Comma => Comma,
-                reader::TokenKind::Dot => Dot,
-                reader::TokenKind::LeftBracket => LeftBracket,
-                reader::TokenKind::RightBracket => RightBracket,
-                reader::TokenKind::Plus => Plus,
+                reader::TokenKind::EoF => Ok(EoF),
+                reader::TokenKind::Comma => Ok(Comma),
+                reader::TokenKind::Dot => Ok(Dot),
+                reader::TokenKind::LeftBracket => Ok(LeftBracket),
+                reader::TokenKind::RightBracket => Ok(RightBracket),
+                reader::TokenKind::Plus => Ok(Plus),
+                reader::TokenKind::Label => {
+                    let label = self.src[start_pos..self.pos].to_string();
+                    if label.len() < 2 || !label.starts_with(':') {
+                        return Err(Diagnostic::new(
+                            format!("Invalid label: {}", label),
+                            Span::new(start_pos as u32, self.pos as u32),
+                        ));
+                    }
+                    Ok(Label(label[1..].to_string()))
+                }
             };
-            // println!("Lexed token: {}, span: {}..{}", kind, start_pos, self.pos);
+            let kind = match kind {
+                Ok(kind) => kind,
+                Err(err) => return Err(Diagnostic::new(
+                    format!("Invalid token: {}", err),
+                    Span::new(start_pos as u32, self.pos as u32),
+                )),
+            };
+
             let span = Span::new(start_pos as u32, self.pos as u32);
-            return Token::new(kind, span);
+            return Ok(Token::new(kind, span));
         }
         // UNREACHABLE
     }
@@ -132,6 +146,7 @@ pub enum TokenKind {
     Number(u16),
     Literal,
     Raw(u16),
+    Label(String),
 }
 
 impl Display for TokenKind {
@@ -148,6 +163,7 @@ impl Display for TokenKind {
             TokenKind::Number(val) => write!(f, "{}", val),
             TokenKind::Literal => write!(f, "!"),
             TokenKind::Raw(val) => write!(f, "0x{:04x}", val),
+            TokenKind::Label(s) => write!(f, ":{}", s),
         }
     }
 }

@@ -59,7 +59,14 @@ fn main() -> eyre::Result<()> {
     // TODO: i dont like having to do this, but otherwise it requires self references
     // maybe the source shouldn't be in ctx?
     let src_str = ctx.source().src().to_owned();
-    let mut parser = Parser::new(src_str.as_str());
+    let mut parser = match Parser::new(src_str.as_str()) {
+        Ok(parser) => parser,
+        Err(e) => {
+            ctx.add_diag(e);
+            ctx.emit_errs();
+            return Err(eyre::eyre!("Failed to begin parsing."));
+        }
+    };
 
     let mut insts = Vec::new();
     loop {
@@ -82,7 +89,15 @@ fn main() -> eyre::Result<()> {
         error!("failed due to previous errors");
     } else {
         debug!("{:#?}", insts);
-        let code = codegen::gen(insts.as_slice());
+        // let code = codegen::gen(insts.as_slice()).unwrap();
+        let code = match codegen::gen(insts.as_slice()) {
+            Ok(code) => code,
+            Err(e) => {
+                ctx.add_diag(e);
+                ctx.emit_errs();
+                return Err(eyre::eyre!("Failed to generate code."));
+            }
+        };
         let printer = CodePrinter(code.as_slice());
         info!("{:x}", printer);
         if let Some(output) = cli.output {

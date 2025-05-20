@@ -51,6 +51,7 @@ impl<'a> Reader<'a> {
             '[' => TokenKind::LeftBracket,
             ']' => TokenKind::RightBracket,
             '+' => TokenKind::Plus,
+            ':' => self.label(),
 
             _ => {
                 panic!("unexpected start of token {}", start_c)
@@ -70,6 +71,11 @@ impl<'a> Reader<'a> {
     fn literal(&mut self) -> TokenKind {
         self.inside_literal = true;
         TokenKind::Literal
+    }
+
+    fn label(&mut self) -> TokenKind {
+        self.eat_while(|c| c.is_alphanumeric() || c == '_');
+        TokenKind::Label
     }
 
     fn hex(&mut self) -> TokenKind {
@@ -161,4 +167,5 @@ pub enum TokenKind {
     Hex,
     Literal,
     Raw,
+    Label,
 }
