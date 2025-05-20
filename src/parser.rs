@@ -10,7 +10,7 @@ use crate::{
         InstructionKind, MemoryOperand, OpSize, RegSelector, SetRegSelector, SetSelector,
         ShiftAmount, SwizzleRegSelector, SwizzleSelector, MAX_REG_IDX,
     },
-    lexer::{Lexer, Token, TokenKind},
+    lexer::{Lexer, Token, LexerToken},
 };
 
 pub struct Parser<'a> {
@@ -39,20 +39,20 @@ impl<'a> Parser<'a> {
     pub fn parse_inst(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, Diagnostic> {
         // eat all newlines before an instruction to ignore empty lines
         // whitespace is ignored entirely, so it does not need to be considered
-        while matches!(self.current.kind(), TokenKind::Newline) {
+        while matches!(self.current.kind(), LexerToken::Newline) {
             self.bump(ctx);
         }
 
-        if self.current.kind() == &TokenKind::EoF {
+        if self.current.kind() == &LexerToken::EoF {
             return Ok(vec![]);
         }
 
-        if self.current.kind() == &TokenKind::Literal {
+        if self.current.kind() == &LexerToken::Literal {
             // Literals are inserted directly into the instruction
             self.bump(ctx);
         }
 
-        if matches!(self.current.kind(), TokenKind::Label(_)) {
+        if matches!(self.current.kind(), LexerToken::LabelDef(_)) {
             let label = match self.expect_label() {
                 Ok(label) => label,
                 Err(e) => {
@@ -64,12 +64,12 @@ impl<'a> Parser<'a> {
             self.bump(ctx);
 
             return Ok(vec![Instruction::new(
-                InstructionKind::Label { label: hash_label(&label) },
+                InstructionKind::LabelDefinition { label: hash_label(&label) },
                 span,
             )]);
         }
 
-        if matches!(self.current.kind(), TokenKind::Raw(_)) {
+        if matches!(self.current.kind(), LexerToken::Raw(_)) {
             return Ok(vec![self.parse_literal_raw(ctx)?]);
         }
 
@@ -196,7 +196,7 @@ impl<'a> Parser<'a> {
         let ret = inner();
         // eat until newline to prevent cascading errors
         if ctx.had_errs() {
-            while !matches!(self.current.kind(), TokenKind::Newline | TokenKind::EoF) {
+            while !matches!(self.current.kind(), LexerToken::Newline | LexerToken::EoF) {
                 self.bump(ctx);
             }
         }
@@ -267,29 +267,42 @@ impl<'a> Parser<'a> {
 
         // Parse in the literal values
         for _ in 0..count {
-            if !self.eat(ctx, &TokenKind::Comma) {
-                continue;
+            if !self.eat(ctx, &LexerToken::Comma) {
+                ctx.add_diag(Diagnostic::new(
+                    format!("missing comma between parameters"),
+                    self.current.span(),
+                ));
             }
             match self.current.kind() {
-                TokenKind::Label(label) => {
-                    return vec![
+                LexerToken::Label(label) => {
+                    ivec.push(
                         Instruction::new(
                             InstructionKind::LabelSet { dst: dst, label: hash_label(label) },
                             self.current.span(),
-                        ),
-                    ];
+                        )
+                    );
                 },
-                TokenKind::Number(v) => {
+                LexerToken::Number(v) => {
                     let v = *v;
-                    self.bump(ctx);
                     ivec.push(Instruction::new(
                         InstructionKind::Raw { val: v },
                         self.current.span(),
                     ));
                 }
                 _ => {
+                    ctx.add_diag(Diagnostic::new(
+                        format!("expected a number or label, got {:?}", self.current.kind()),
+                        self.current.span(),
+                    ));
                     continue;
                 }
+            }
+            self.bump(ctx);
+        }
+
+        for v in &ivec {
+            if matches!(v.kind(), InstructionKind::LabelSet { .. }) {
+                self.bump(ctx);
             }
         }
 
@@ -329,10 +342,10 @@ impl<'a> Parser<'a> {
         self.bump(ctx);
 
         let k = match &self.current.kind() {
-            TokenKind::Label(label) => {
+            LexerToken::Label(label) => {
                 InstructionKind::LabelJump { label: hash_label(label) }
             },
-            TokenKind::Number(num) => {
+            LexerToken::Number(num) => {
                 InstructionKind::Raw { val: *num }
             },
             _ => {
@@ -380,7 +393,7 @@ impl<'a> Parser<'a> {
         // self.bump(ctx);
 
         let raw = match self.current.kind() {
-            TokenKind::Raw(val) => {
+            LexerToken::Raw(val) => {
                 let val = *val;
                 self.bump(ctx);
                 val
@@ -413,9 +426,9 @@ impl<'a> Parser<'a> {
 
     fn parse_sleep(&mut self, ctx: &mut Context) -> Vec<Instruction> {
         self.bump(ctx);
-        if !self.eat(ctx, &TokenKind::Dot) {
+        if !self.eat(ctx, &LexerToken::Dot) {
             let ticks = match self.current.kind() {
-                TokenKind::Number(num) => {
+                LexerToken::Number(num) => {
                     let num = *num;
                     self.bump(ctx);
                     num as u8
@@ -430,6 +443,7 @@ impl<'a> Parser<'a> {
             };
             return vec![Instruction::new(InstructionKind::Sleep { ticks }, self.current.span())];
         }
+
         let mut byte = false;
         let mut high = false;
         if let Ok(size) = self.expect_ident().map_err(|d| {
@@ -468,7 +482,7 @@ impl<'a> Parser<'a> {
 
         let dst = self.parse_move_operand(ctx)?;
 
-        if !self.eat(ctx, &TokenKind::Comma) {
+        if !self.eat(ctx, &LexerToken::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between dst and src"),
                 self.current.span(),
@@ -578,7 +592,7 @@ impl<'a> Parser<'a> {
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
-        if !self.eat(ctx, &TokenKind::Comma) {
+        if !self.eat(ctx, &LexerToken::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between dst and src"),
                 self.current.span(),
@@ -835,7 +849,7 @@ impl<'a> Parser<'a> {
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
-        if !self.eat(ctx, &TokenKind::Comma) {
+        if !self.eat(ctx, &LexerToken::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between lhs and rhs"),
                 self.current.span(),
@@ -1031,7 +1045,7 @@ impl<'a> Parser<'a> {
         let span_start = self.current.span();
         self.bump(ctx);
 
-        if self.eat(ctx, &TokenKind::Dot) {
+        if self.eat(ctx, &LexerToken::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("bitwise operands do not take a size parameter"),
                 self.current.span(),
@@ -1095,7 +1109,7 @@ impl<'a> Parser<'a> {
         let span_start = self.current.span();
         self.bump(ctx);
 
-        if !self.eat(ctx, &TokenKind::Dot) {
+        if !self.eat(ctx, &LexerToken::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("math operands need a `.b` or `.w` to specify size"),
                 self.current.span(),
@@ -1128,7 +1142,7 @@ impl<'a> Parser<'a> {
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
         });
-        if !self.eat(ctx, &TokenKind::Comma) {
+        if !self.eat(ctx, &LexerToken::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between dst and lhs"),
                 self.current.span(),
@@ -1142,8 +1156,8 @@ impl<'a> Parser<'a> {
             // use a dummy selector to allow recovery
             RegSelector::new_gpr(0, Span::DUMMY)
         });
-        if !self.eat(ctx, &TokenKind::Comma) {
-            if matches!(self.current.kind(), TokenKind::Newline) {
+        if !self.eat(ctx, &LexerToken::Comma) {
+            if matches!(self.current.kind(), LexerToken::Newline) {
                 // the user probably assumed this was a two argument math op of the form dst, src
                 // but it actually is three, dst, lhs, rhs
                 ctx.add_diag(Diagnostic::new(
@@ -1185,7 +1199,7 @@ impl<'a> Parser<'a> {
     ) -> Result<(OpSize, RegSelector, ShiftAmount), ()> {
         self.bump(ctx);
 
-        if !self.eat(ctx, &TokenKind::Dot) {
+        if !self.eat(ctx, &LexerToken::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("math operands need a `.b` or `.w` to specify size"),
                 self.current.span(),
@@ -1220,7 +1234,7 @@ impl<'a> Parser<'a> {
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
-        if !self.eat(ctx, &TokenKind::Comma) {
+        if !self.eat(ctx, &LexerToken::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between lhs and rhs"),
                 self.current.span(),
@@ -1229,13 +1243,13 @@ impl<'a> Parser<'a> {
         }
 
         let amount = match self.current.kind() {
-            TokenKind::Ident(_) => ShiftAmount::Register(self.parse_reg(ctx).unwrap_or_else(|d| {
+            LexerToken::Ident(_) => ShiftAmount::Register(self.parse_reg(ctx).unwrap_or_else(|d| {
                 ctx.add_diag(d);
                 was_reg_err = true;
                 // use a dummy selector to allow recovery
                 RegSelector::new_gpr(0, Span::DUMMY)
             })),
-            TokenKind::Number(num) => {
+            LexerToken::Number(num) => {
                 let span = self.current.span();
                 let num = *num;
                 self.bump(ctx);
@@ -1278,7 +1292,7 @@ impl<'a> Parser<'a> {
     fn parse_bitop_common(&mut self, ctx: &mut Context) -> Result<(RegSelector, RegSelector), ()> {
         self.bump(ctx);
 
-        if self.eat(ctx, &TokenKind::Dot) {
+        if self.eat(ctx, &LexerToken::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("bitwise operands do not take a size parameter"),
                 self.current.span(),
@@ -1294,7 +1308,7 @@ impl<'a> Parser<'a> {
             RegSelector::new_gpr(0, Span::DUMMY)
         });
 
-        if !self.eat(ctx, &TokenKind::Comma) {
+        if !self.eat(ctx, &LexerToken::Comma) {
             ctx.add_diag(Diagnostic::new(
                 String::from("missing comma between dst and src"),
                 self.current.span(),
@@ -1322,7 +1336,7 @@ impl<'a> Parser<'a> {
 
     fn parse_move_operand(&mut self, ctx: &mut Context) -> Result<LoadStoreOp, ()> {
         let span_start = self.current.span();
-        let is_mem = self.eat(ctx, &TokenKind::LeftBracket);
+        let is_mem = self.eat(ctx, &LexerToken::LeftBracket);
 
         // memory operands must contain their selector in order starting with X
         // since they must be precisely x or xyzw
@@ -1349,9 +1363,9 @@ impl<'a> Parser<'a> {
                 // recover with the invalid selector
             }
 
-            let increment = self.eat(ctx, &TokenKind::Plus);
+            let increment = self.eat(ctx, &LexerToken::Plus);
 
-            if !self.eat(ctx, &TokenKind::RightBracket) {
+            if !self.eat(ctx, &LexerToken::RightBracket) {
                 ctx.add_diag(Diagnostic::new(
                     String::from("missing `]` after memory operand"),
                     self.current.span(),
@@ -1446,7 +1460,7 @@ impl<'a> Parser<'a> {
         //     return Err(());
         // }
 
-        let selector = if self.eat(ctx, &TokenKind::Dot) {
+        let selector = if self.eat(ctx, &LexerToken::Dot) {
             self.parse_set_selector(ctx, select_mode)?
         } else {
             // Assume xyzw as default
@@ -1476,7 +1490,7 @@ impl<'a> Parser<'a> {
             ctx.add_diag(d);
         })?;
 
-        if !self.eat(ctx, &TokenKind::Dot) {
+        if !self.eat(ctx, &LexerToken::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("expected a `.` between a register name and its element selector"),
                 self.current.span(),
@@ -1509,7 +1523,7 @@ impl<'a> Parser<'a> {
             ctx.add_diag(d);
         })?;
 
-        if !self.eat(ctx, &TokenKind::Dot) {
+        if !self.eat(ctx, &LexerToken::Dot) {
             ctx.add_diag(Diagnostic::new(
                 String::from("expected a `.` between a register name and its element selector"),
                 self.current.span(),
@@ -1710,7 +1724,8 @@ impl<'a> Parser<'a> {
 
     fn expect_label(&self) -> Result<String, Diagnostic> {
         match self.current.kind() {
-            TokenKind::Label(s) => Ok(s.clone()),
+            LexerToken::Label(s) => Ok(s.clone()),
+            LexerToken::LabelDef(s) => Ok(s.clone()),
             other => Err(Diagnostic::new(
                 format!("expected label, found `{other}`"),
                 self.current.span(),
@@ -1720,7 +1735,7 @@ impl<'a> Parser<'a> {
 
     fn expect_ident(&self) -> Result<String, Diagnostic> {
         match self.current.kind() {
-            TokenKind::Ident(s) => Ok(s.clone()),
+            LexerToken::Ident(s) => Ok(s.clone()),
             other => Err(Diagnostic::new(
                 format!("expected identifier, found `{other}`"),
                 self.current.span(),
@@ -1730,7 +1745,7 @@ impl<'a> Parser<'a> {
 
     /// expects the current token to be a specific kind, and eats it if it matches
     /// returns true if the token was eaten, false otherwise
-    fn eat(&mut self, ctx: &mut Context, kind: &TokenKind) -> bool {
+    fn eat(&mut self, ctx: &mut Context, kind: &LexerToken) -> bool {
         if self.current.kind() == kind {
             self.bump(ctx);
             true

@@ -23,12 +23,12 @@ impl<'a> Reader<'a> {
 
     pub fn next(&mut self) -> Token {
         let Some(start_c) = self.chars.next() else {
-            return Token::new(TokenKind::EoF, 0);
+            return Token::new(ReaderToken::EoF, 0);
         };
 
         if self.inside_literal && start_c != '\n' {
             self.eat_while(move |c| c.is_ascii_hexdigit());
-            let token = Token::new(TokenKind::Raw, self.token_len());
+            let token = Token::new(ReaderToken::Raw, self.token_len());
             self.reset_len();
             return token;
         } else {
@@ -46,11 +46,11 @@ impl<'a> Reader<'a> {
 
             c if c.is_ascii_digit() => self.number(),
 
-            ',' => TokenKind::Comma,
-            '.' => TokenKind::Dot,
-            '[' => TokenKind::LeftBracket,
-            ']' => TokenKind::RightBracket,
-            '+' => TokenKind::Plus,
+            ',' => ReaderToken::Comma,
+            '.' => ReaderToken::Dot,
+            '[' => ReaderToken::LeftBracket,
+            ']' => ReaderToken::RightBracket,
+            '+' => ReaderToken::Plus,
             ':' => self.label(),
 
             _ => {
@@ -62,46 +62,46 @@ impl<'a> Reader<'a> {
         token
     }
 
-    fn comment(&mut self) -> TokenKind {
+    fn comment(&mut self) -> ReaderToken {
         self.inside_literal = false;
         self.eat_while(|c| c != '\n');
-        TokenKind::Comment
+        ReaderToken::Comment
     }
 
-    fn literal(&mut self) -> TokenKind {
+    fn literal(&mut self) -> ReaderToken {
         self.inside_literal = true;
-        TokenKind::Literal
+        ReaderToken::Literal
     }
 
-    fn label(&mut self) -> TokenKind {
+    fn label(&mut self) -> ReaderToken {
         self.eat_while(|c| c.is_alphanumeric() || c == '_');
-        TokenKind::Label
+        ReaderToken::Label
     }
 
-    fn hex(&mut self) -> TokenKind {
+    fn hex(&mut self) -> ReaderToken {
         self.eat_while(|c| c.is_ascii_hexdigit());
-        TokenKind::Hex
+        ReaderToken::Hex
     }
 
-    fn newline(&mut self) -> TokenKind {
+    fn newline(&mut self) -> ReaderToken {
         self.eat_while(|c| c == '\n');
         self.inside_literal = false;
-        TokenKind::Newline
+        ReaderToken::Newline
     }
 
-    fn eat_whitespace(&mut self) -> TokenKind {
+    fn eat_whitespace(&mut self) -> ReaderToken {
         self.eat_while(|c| c != '\n' && c.is_whitespace());
-        TokenKind::Whitespace
+        ReaderToken::Whitespace
     }
 
-    fn ident(&mut self) -> TokenKind {
+    fn ident(&mut self) -> ReaderToken {
         self.eat_while(is_ident_continue);
-        TokenKind::Ident
+        ReaderToken::Ident
     }
 
-    fn number(&mut self) -> TokenKind {
+    fn number(&mut self) -> ReaderToken {
         self.eat_while(|c: char| c.is_ascii_digit());
-        TokenKind::Number
+        ReaderToken::Number
     }
 
     fn token_len(&self) -> usize {
@@ -133,12 +133,12 @@ fn is_ident_continue(c: char) -> bool {
 
 #[derive(Debug)]
 pub struct Token {
-    kind: TokenKind,
+    kind: ReaderToken,
     len: usize,
 }
 
 impl Token {
-    pub fn kind(&self) -> TokenKind {
+    pub fn kind(&self) -> ReaderToken {
         self.kind
     }
 
@@ -146,13 +146,13 @@ impl Token {
         self.len
     }
 
-    fn new(kind: TokenKind, len: usize) -> Self {
+    fn new(kind: ReaderToken, len: usize) -> Self {
         Self { kind, len }
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TokenKind {
+pub enum ReaderToken {
     EoF,
     Newline,
     Whitespace,

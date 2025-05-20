@@ -10,8 +10,6 @@ pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
 
     let mut labels: HashMap<u64, u16> = HashMap::new();
 
-    // println!("Instructions: {:#?}", insts);
-
     for inst in insts.iter() {
         let span = inst.span();
         let inst_code = gen_inst(inst.clone());
@@ -20,7 +18,7 @@ pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
         for inst in inst_code.iter() {
             gis.push((addr, inst.clone()));
             match inst {
-                GI::Label(label) => {
+                GI::LabelDefinition(label) => {
                     if labels.contains_key(label) {
                         return Err(Diagnostic::new(
                             format!("Duplicate label: {}", label),
@@ -49,12 +47,6 @@ pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
         match inst {
             GI::JumpToLabel(label) => {
                 if let Some(addr) = labels.get(label) {
-                    // code.push(op_from_parts(
-                    //     0xf,
-                    //     0xf,
-                    //     0x6,
-                    //     opcode::MOVE,
-                    // ));
                     code.push(*addr);
                 } else {
                     return Err(Diagnostic::new(
@@ -92,7 +84,7 @@ pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
 #[derive(Debug, Clone)]
 pub enum GI {
     Instruction(u16),
-    Label(u64),
+    LabelDefinition(u64),
     JumpToLabel(u64),
     SetToLabel(u8, u64),
 }
@@ -100,8 +92,8 @@ pub enum GI {
 fn gen_inst(inst: Instruction) -> Vec<GI> {
     use InstructionKind::*;
     match *inst.kind() {
-        Label { label } => {
-            vec![GI::Label(label)]
+        LabelDefinition { label } => {
+            vec![GI::LabelDefinition(label)]
         },
         LabelJump { label } => {
             vec![GI::JumpToLabel(label)]
@@ -477,14 +469,6 @@ mod shift_ops {
 }
 
 mod bit_ops {
-    // pub(super) const AND: u8 = 0b1000;
-    // pub(super) const OR: u8 = 0b1110;
-    // pub(super) const XOR: u8 = 0b0110;
-    // pub(super) const NAND: u8 = 0b0111;
-    // pub(super) const NOR: u8 = 0b0001;
-    // pub(super) const XNOR: u8 = 0b1001;
-    // pub(super) const NOT_DST: u8 = 0b0011;
-
     pub(super) const ONE: u8 = 0x0;
     pub(super) const ALL: u8 = 0xf;
 

@@ -1,7 +1,7 @@
 #![allow(clippy::uninlined_format_args)]
 use std::fmt::Display;
 
-use crate::{diag::Diagnostic, reader::{self, Reader}};
+use crate::{diag::Diagnostic, reader::{Reader, ReaderToken}};
 
 /// this is a different thing from reader to be able to easily separate
 /// the splitting and the getting source mechanisms
@@ -10,6 +10,7 @@ pub struct Lexer<'a> {
     src: &'a str,
     pos: usize,
     reader: Reader<'a>,
+    last_token: Option<ReaderToken>,
 }
 
 impl<'a> Lexer<'a> {
@@ -18,11 +19,12 @@ impl<'a> Lexer<'a> {
             src,
             pos: 0,
             reader: Reader::new(src),
+            last_token: None,
         }
     }
 
     pub fn next_token(&mut self) -> Result<Token, Diagnostic> {
-        use TokenKind::*;
+        use LexerToken::*;
 
         // loops to skip whitespace
         loop {
@@ -31,30 +33,30 @@ impl<'a> Lexer<'a> {
             let start_pos = self.pos;
             self.pos += next.len();
 
-            let kind: Result<TokenKind, String> = match next.kind() {
-                reader::TokenKind::Newline => Ok(Newline),
-                reader::TokenKind::Whitespace | reader::TokenKind::Comment => continue,
-                reader::TokenKind::Ident => Ok(Ident(self.src[start_pos..self.pos].to_string())),
-                reader::TokenKind::Number => match self.src[start_pos..self.pos].parse::<u16>() {
+            let kind: Result<LexerToken, String> = match next.kind() {
+                ReaderToken::Newline => Ok(Newline),
+                ReaderToken::Whitespace | ReaderToken::Comment => continue,
+                ReaderToken::Ident => Ok(Ident(self.src[start_pos..self.pos].to_string())),
+                ReaderToken::Number => match self.src[start_pos..self.pos].parse::<u16>() {
                     Ok(num) => Ok(Number(num)),
                     Err(_) => Err(format!("Invalid 16-bit number: {}", &self.src[start_pos..self.pos])),
                 },
-                reader::TokenKind::Hex => match u16::from_str_radix(&self.src[(start_pos+1)..self.pos], 16) {
+                ReaderToken::Hex => match u16::from_str_radix(&self.src[(start_pos+1)..self.pos], 16) {
                     Ok(num) => Ok(Number(num)),
                     Err(_) => Err(format!("Invalid 16-bit hex: {}", &self.src[(start_pos+1)..self.pos])),
                 },
-                reader::TokenKind::Literal => Ok(Literal),
-                reader::TokenKind::Raw => match u16::from_str_radix(&self.src[start_pos..self.pos].to_string(), 16) {
+                ReaderToken::Literal => Ok(Literal),
+                ReaderToken::Raw => match u16::from_str_radix(&self.src[start_pos..self.pos].to_string(), 16) {
                     Ok(raw) => Ok(Raw(raw)),
                     Err(_) => Err(format!("Error parsing literal: {}", &self.src[start_pos..self.pos])),
                 }
-                reader::TokenKind::EoF => Ok(EoF),
-                reader::TokenKind::Comma => Ok(Comma),
-                reader::TokenKind::Dot => Ok(Dot),
-                reader::TokenKind::LeftBracket => Ok(LeftBracket),
-                reader::TokenKind::RightBracket => Ok(RightBracket),
-                reader::TokenKind::Plus => Ok(Plus),
-                reader::TokenKind::Label => {
+                ReaderToken::EoF => Ok(EoF),
+                ReaderToken::Comma => Ok(Comma),
+                ReaderToken::Dot => Ok(Dot),
+                ReaderToken::LeftBracket => Ok(LeftBracket),
+                ReaderToken::RightBracket => Ok(RightBracket),
+                ReaderToken::Plus => Ok(Plus),
+                ReaderToken::Label => {
                     let label = self.src[start_pos..self.pos].to_string();
                     if label.len() < 2 || !label.starts_with(':') {
                         return Err(Diagnostic::new(
@@ -62,7 +64,10 @@ impl<'a> Lexer<'a> {
                             Span::new(start_pos as u32, self.pos as u32),
                         ));
                     }
-                    Ok(Label(label[1..].to_string()))
+                    match self.last_token {
+                        None | Some(ReaderToken::Newline) => Ok(LabelDef(label[1..].to_string())),
+                        _ => Ok(Label(label[1..].to_string())),
+                    }
                 }
             };
             let kind = match kind {
@@ -73,6 +78,7 @@ impl<'a> Lexer<'a> {
                 )),
             };
 
+            self.last_token = Some(next.kind());
             let span = Span::new(start_pos as u32, self.pos as u32);
             return Ok(Token::new(kind, span));
         }
@@ -115,12 +121,12 @@ impl Span {
 
 #[derive(Debug)]
 pub struct Token {
-    kind: TokenKind,
+    kind: LexerToken,
     span: Span,
 }
 
 impl Token {
-    pub fn kind(&self) -> &TokenKind {
+    pub fn kind(&self) -> &LexerToken {
         &self.kind
     }
 
@@ -128,13 +134,13 @@ impl Token {
         self.span
     }
 
-    fn new(kind: TokenKind, span: Span) -> Self {
+    fn new(kind: LexerToken, span: Span) -> Self {
         Self { kind, span }
     }
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub enum TokenKind {
+pub enum LexerToken {
     EoF,
     Newline,
     Comma,
@@ -146,24 +152,26 @@ pub enum TokenKind {
     Number(u16),
     Literal,
     Raw(u16),
+    LabelDef(String),
     Label(String),
 }
 
-impl Display for TokenKind {
+impl Display for LexerToken {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TokenKind::EoF => write!(f, "<EoF>"),
-            TokenKind::Newline => write!(f, "<\\n>"),
-            TokenKind::Comma => write!(f, ","),
-            TokenKind::Dot => write!(f, "."),
-            TokenKind::LeftBracket => write!(f, "["),
-            TokenKind::RightBracket => write!(f, "]"),
-            TokenKind::Plus => write!(f, "+"),
-            TokenKind::Ident(s) => write!(f, "{}", s),
-            TokenKind::Number(val) => write!(f, "{}", val),
-            TokenKind::Literal => write!(f, "!"),
-            TokenKind::Raw(val) => write!(f, "0x{:04x}", val),
-            TokenKind::Label(s) => write!(f, ":{}", s),
+            LexerToken::EoF => write!(f, "<EoF>"),
+            LexerToken::Newline => write!(f, "<\\n>"),
+            LexerToken::Comma => write!(f, ","),
+            LexerToken::Dot => write!(f, "."),
+            LexerToken::LeftBracket => write!(f, "["),
+            LexerToken::RightBracket => write!(f, "]"),
+            LexerToken::Plus => write!(f, "+"),
+            LexerToken::Ident(s) => write!(f, "{}", s),
+            LexerToken::Number(val) => write!(f, "{}", val),
+            LexerToken::Literal => write!(f, "!"),
+            LexerToken::Raw(val) => write!(f, "0x{:04x}", val),
+            LexerToken::LabelDef(s) => write!(f, "@:{}", s),
+            LexerToken::Label(s) => write!(f, ":{}", s),
         }
     }
 }

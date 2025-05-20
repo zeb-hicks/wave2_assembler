@@ -101,18 +101,16 @@ fn main() -> eyre::Result<()> {
 
     let mut insts = Vec::new();
     loop {
-        // println!("Parsing instruction");
         let inst = parser.parse_inst(&mut ctx);
         match inst {
             Ok(inst) => {
-                // println!("Parsed {:#?}", inst);
                 if inst.len() == 0{ break; }
                 for inst in inst {
                     insts.push(inst);
                 }
             },
             Err(_) => {
-                // println!("Error parsing {:#?}", inst);
+                println!("Error parsing {:#?}", inst);
                 break;
             }
         }

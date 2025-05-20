@@ -115,7 +115,7 @@ pub enum InstructionKind {
     Nor { src: RegSelector, dst: RegSelector, },
     XNor { src: RegSelector, dst: RegSelector, },
 
-    Label { label: u64 },
+    LabelDefinition { label: u64 },
     LabelJump { label: u64 },
     LabelSet { dst: RegSelector, label: u64 },
 
