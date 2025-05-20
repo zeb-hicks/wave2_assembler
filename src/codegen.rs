@@ -49,12 +49,12 @@ pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
         match inst {
             GI::JumpToLabel(label) => {
                 if let Some(addr) = labels.get(label) {
-                    code.push(op_from_parts(
-                        0xf,
-                        0xf,
-                        0x6,
-                        opcode::MOVE,
-                    ));
+                    // code.push(op_from_parts(
+                    //     0xf,
+                    //     0xf,
+                    //     0x6,
+                    //     opcode::MOVE,
+                    // ));
                     code.push(*addr);
                 } else {
                     return Err(Diagnostic::new(

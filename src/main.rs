@@ -59,7 +59,36 @@ fn main() -> eyre::Result<()> {
     // TODO: i dont like having to do this, but otherwise it requires self references
     // maybe the source shouldn't be in ctx?
     let src_str = ctx.source().src().to_owned();
-    let mut parser = match Parser::new(src_str.as_str()) {
+
+    let mut mem_lines = Vec::new();
+    let mut code_lines = Vec::new();
+
+    let mut in_code = true;
+
+    for line in src_str.lines() {
+        match line {
+            ".memory" => {
+                in_code = false;
+                continue;
+            }
+            ".code" => {
+                in_code = true;
+                continue;
+            }
+            _ => {
+                if in_code {
+                    code_lines.push(line.to_string());
+                } else {
+                    mem_lines.push(line.to_string());
+                }
+            }
+        }
+    }
+
+    let code_str = code_lines.join("\n");
+    let mem_str = mem_lines.join("\n");
+
+    let mut parser = match Parser::new(code_str.as_str()) {
         Ok(parser) => parser,
         Err(e) => {
             ctx.add_diag(e);
@@ -68,17 +97,22 @@ fn main() -> eyre::Result<()> {
         }
     };
 
+
+
     let mut insts = Vec::new();
     loop {
+        // println!("Parsing instruction");
         let inst = parser.parse_inst(&mut ctx);
         match inst {
             Ok(inst) => {
+                // println!("Parsed {:#?}", inst);
                 if inst.len() == 0{ break; }
                 for inst in inst {
                     insts.push(inst);
                 }
             },
             Err(_) => {
+                // println!("Error parsing {:#?}", inst);
                 break;
             }
         }
@@ -105,6 +139,21 @@ fn main() -> eyre::Result<()> {
                 if let Some(mem) = cli.memory {
                     let mem = fs::read_to_string(mem).context("failed to read memory file")?;
                     let mem = parse_mem(mem);
+                    let mut header = b"MWvm\x01\0\0".to_vec();
+                    let memlen = mem.len().min(60) as u8;
+                    header[5] = header.len() as u8;
+                    header[6] = memlen + header[5];
+                    let code = code
+                        .iter()
+                        .flat_map(|&x| x.to_be_bytes());
+                    let buffer = header
+                        .into_iter()
+                        .chain(mem)
+                        .chain(code)
+                        .collect::<Vec<u8>>();
+                    fs::write(&output, buffer).context("failed to write output file")?;
+                } else if mem_lines.len() > 0 {
+                    let mem = parse_mem(mem_str);
                     let mut header = b"MWvm\x01\0\0".to_vec();
                     let memlen = mem.len().min(60) as u8;
                     header[5] = header.len() as u8;

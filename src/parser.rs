@@ -333,7 +333,6 @@ impl<'a> Parser<'a> {
                 InstructionKind::LabelJump { label: hash_label(label) }
             },
             TokenKind::Number(num) => {
-                // self.bump(ctx);
                 InstructionKind::Raw { val: *num }
             },
             _ => {
