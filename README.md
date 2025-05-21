@@ -2,6 +2,13 @@
 
 Assembler for the [Wave2](https://github.com/Meisaka/MeiVM2/) architecture.
 
+### See also:
+- https://github.com/Meisaka/MeiVM2/
+- https://github.com/zeb-hicks/waverune
+- https://marketplace.visualstudio.com/items?itemName=Nimphious.wave2-assembly
+
+---
+### Contents
 
 - [Example](#example)
 - [Instruction Set](#instruction-set)
