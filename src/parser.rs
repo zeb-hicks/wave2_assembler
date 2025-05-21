@@ -444,25 +444,30 @@ impl<'a> Parser<'a> {
             return vec![Instruction::new(InstructionKind::Sleep { ticks }, self.current.span())];
         }
 
-        let mut byte = false;
-        let mut high = false;
-        if let Ok(size) = self.expect_ident().map_err(|d| {
-            ctx.add_diag(d.with_note(String::from(
-                "math operands need a `.b` or `.w` to specify size",
-            )));
-        }) {
-            match size.as_str() {
-                "h" => {byte = true; high = true}
-                "l" => {byte = true; high = false}
-                "w" => {byte = false; high = false}
+        let (byte, high) = match self.current.kind() {
+            LexerToken::Ident(ident) => match ident.as_str() {
+                "h" => (true, true),
+                "l" => (true, false),
+                "w" => (false, false),
                 _ => {
                     ctx.add_diag(Diagnostic::new(
-                        String::from("math operands need a `.b` or `.w` to specify size"),
+                        String::from("sleep from register needs a `.h`, `.l`, or `.w` to specify mode"),
                         self.current.span(),
                     ));
+                    return vec![];
                 }
+            },
+            _ => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("missing specifier `h`, `l`, or `w` after dot"),
+                    self.current.span(),
+                ));
+                return vec![];
             }
-        }
+        };
+
+        self.bump(ctx);
+
         let reg = self.parse_reg(ctx).unwrap_or_else(|d| {
             ctx.add_diag(d);
             // use a dummy selector to allow recovery
