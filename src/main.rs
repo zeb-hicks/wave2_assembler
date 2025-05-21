@@ -116,7 +116,6 @@ fn main() -> eyre::Result<()> {
         error!("failed due to previous errors");
     } else {
         debug!("{:#?}", insts);
-        // let code = codegen::gen(insts.as_slice()).unwrap();
         let code = match codegen::gen(insts.as_slice()) {
             Ok(code) => code,
             Err(e) => {
@@ -176,7 +175,6 @@ fn parse_mem(mem: String) -> Vec<u8> {
         .flat_map(|l| l.chars())
         .filter(|c| !c.is_whitespace())
         .filter(|c| c.is_ascii_hexdigit());
-    // let chars = mem.chars().filter(|c| !c.is_whitespace());
     // Convert the characters to u8
     let mut out: Vec<u8> = Vec::new();
     let mut buffer: u8 = 0;
