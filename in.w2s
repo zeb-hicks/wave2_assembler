@@ -21,14 +21,14 @@ mov r3.xyzw, c5.xyzw      ; r3 - current image data addr
 lsr.w r4, 15              ; r4 - clear line counter
 ; == line loop start ==
 swizzle r7.xyxw           ; :Z lines
-mov r0.xyzw, [r3.x]+      ; r0 - image data addres, increment for the next iteration
+mov r0.xyzw, [r3.x+]      ; r0 - image data addres, increment for the next iteration
 mov r1.xyzw, r2.xyzw      ; r1 - current pixel target address
 ; == pixel loop start ==
 swizzle r7.xxzw           ; :Y pixels
 mov r5.xyzw, r0.xyzw      ; r5 - pixel data
 and r5, c2                ; apply mask - get color indexes
 mov r6.xyzw, [r5.xyzw]    ; r6 - color data [freeing r5]
-mov [r1.xyzw]+, r6.xyzw   ; draw and increment pixel target address [freeing r6]
+mov [r1.xyzw+], r6.xyzw   ; draw and increment pixel target address [freeing r6]
 rol.w r0, 2               ; roll image data to the next pixel
 ; linebreak test
 mov r6.xyzw, r1.xyzw      ; r6 - test result
@@ -90,7 +90,7 @@ neq.b r0, r1, r0      ; r0 = r1 != r0
 ; ====== mov ======
 mov r0.xyzw, r1.xyzw     ; register to register move
 mov r0.xy, r1.xy         ; register to register move (masked)
-mov [r0.x]+, r1.xyzw     ; register to memory move
+mov [r0.x+], r1.xyzw     ; register to memory move
 mov r3.xy, [r0.xyzw]     ; memory to register move
 
 swizzle r2.yxwz
