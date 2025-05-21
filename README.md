@@ -55,12 +55,12 @@ jmp :loop
 
 ## Instruction Set
 
-- N = Number                   <sup>e.g. `42`</sup>
-- C = Constant register        <sup>e.g. `c3`</sup>
-- R = General Purpose Register <sup>e.g. `r2`</sup>
-- P = Pointer                  <sup>e.g. `[r0.x]`</sup>
-- I = Increment Pointer        <sup>e.g. `[ri.x+]`</sup>
-- L = Label                    <sup>e.g. `:Loop_Start`</sup>
+- N = Number                   <sup>`42`, `$20` ...</sup>
+- C = Constant register        <sup>`c0` .. `c7`</sup>
+- R = General Purpose Register <sup>`r0` .. `r7`|`ri`</sup>
+- P = Pointer                  <sup>`[r0.x]`, `[r3]`, `[c4.xyzw]` ...</sup>
+- I = Increment Pointer        <sup>`[ri.x+]`, `[r0+]`, `[r2.xyzw+]` ...</sup>
+- L = Label                    <sup>`:Loop_Start`, `:MAIN`, `:Example` ...</sup>
 
 <table>
     <th>
