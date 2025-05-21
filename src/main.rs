@@ -2,6 +2,7 @@
 #![allow(clippy::uninlined_format_args)]
 
 use clap::Parser as _;
+use clap_stdin::FileOrStdin;
 use eyre::Context as _;
 use log::*;
 
@@ -9,6 +10,7 @@ use diag::Context;
 use parser::Parser;
 use source::Source;
 use std::fs;
+use std::io::Read;
 use std::path::PathBuf;
 use util::CodePrinter;
 
@@ -26,7 +28,7 @@ mod util;
 struct Cli {
     /// Input file path
     #[arg()]
-    input: PathBuf,
+    input: FileOrStdin<String>,
     /// Output as Wave2 binary format
     #[arg(short, long, default_value_t = false)]
     binary: bool,
@@ -45,17 +47,18 @@ fn main() -> eyre::Result<()> {
         .with_level(cli.log_level)
         .init()?;
 
-    if !cli.input.try_exists()? {
-        error!("File \"{}\" does not exist", cli.input.display());
-        return Ok(());
-    }
+    let filename = if cli.input.is_file() {
+        cli.input.filename().to_string()
+    } else {
+        "stdin".to_string()
+    };
 
-    let source = Source::new_from_file(cli.input)?;
+    let mut reader = cli.input.into_reader()?;
+    let mut src_str: String = String::new();
+    reader.read_to_string(&mut src_str)?;
+
+    let source = Source::new_from_string(&src_str, &filename);
     let mut ctx = Context::new(source);
-
-    // TODO: i dont like having to do this, but otherwise it requires self references
-    // maybe the source shouldn't be in ctx?
-    let src_str = ctx.source().src().to_owned();
 
     let mut mem_lines = Vec::new();
     let mut code_lines = Vec::new();
@@ -162,6 +165,8 @@ fn main() -> eyre::Result<()> {
                 fs::write(&output, format!("{:x}", printer)).context("failed to write output file")?;
                 info!("Wrote compiled hex to \"{}\"", output.display())
             }
+        } else {
+            println!("{:x}", printer);
         }
     }
 

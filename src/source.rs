@@ -1,5 +1,3 @@
-use std::{fs, io, path::Path};
-
 /// contains info about the source of a file
 #[derive(Debug)]
 pub struct Source {
@@ -10,16 +8,14 @@ pub struct Source {
 }
 
 impl Source {
-    pub fn new_from_file(path: impl AsRef<Path>) -> io::Result<Source> {
-        let filename = path.as_ref().display().to_string();
-        let src = fs::read_to_string(path)?;
-        let line_starts = gen_lines(src.as_str());
-
-        Ok(Self {
+    pub fn new_from_string(src: &String, filename: &String) -> Source {
+        let filename = filename.clone();
+        let line_starts = gen_lines(src);
+        Self {
             filename,
-            src,
+            src: src.to_string(),
             line_starts,
-        })
+        }
     }
 
     pub fn filename(&self) -> &str {
