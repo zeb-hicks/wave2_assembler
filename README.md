@@ -21,33 +21,35 @@ Assembler for the [Wave2](https://github.com/Meisaka/MeiVM2/) architecture.
 
 This example program cycles the user's ship colour through a list of colours stored in the constant register.
 
-<div style="font-family: monospace; padding: 1em; border-radius: 0.5em; background: #202224; color: #ddd; white-space-collapse: preserve;"><span style="color: #6c6;">; This section describes the memory layout of the constant registers</span>
-<span style="color: #ee9;">.memory</span>
+```
+; This section describes the memory layout of the constant registers
+.memory
 
-<span style="color: #a84;">000f 00ff 00f0 0ff0
+000f 00ff 00f0 0ff0
 0f00 ff00 f000 0f0f
 f0f0 fff0 f00f 0fff
-f0ff ff0f 7777 ffff</span>
+f0ff ff0f 7777 ffff
 
-<span style="color: #6c6;">; This section contains the code that is inserted at 0x40</span>
-<span style="color: #ee9;">.code</span>
+; This section contains the code that is inserted at 0x40
+.code
 
-<span style="color: #59f;">set</span> r1, $0f          <span style="color: #6c6;">; Colour count</span>
-<span style="color: #59f;">set</span> r4, $39c         <span style="color: #6c6;">; Ship colour</span>
-<span style="color: #fff;">:loop</span>
+set r1, $0f          ; Colour count
+set r4, $39c         ; Ship colour
+:loop
 
-<span style="color: #59f;">mov</span> r1.x, <span style="color: #e83;">[r0.x]</span>     <span style="color: #6c6;">; Read colour from constants</span>
-<span style="color: #59f;">mov</span> <span style="color: #e83;">[r0.x+]</span>, r1.x    <span style="color: #6c6;">; Increment r0 and also copy the colour</span>
+mov r1.x, [r0.x]     ; Read colour from constants
+mov [r0.x+], r1.x    ; Increment r0 and also copy the colour
 
-<span style="color: #59f;">mov</span> r2.x, r0.x       <span style="color: #6c6;">; Make a copy of the counter</span>
-<span style="color: #59f;">ge.w</span> r2, r2, r1      <span style="color: #6c6;">; If counter > colour count</span>
-<span style="color: #59f;">sub.w</span> ri, ri, r2     <span style="color: #6c6;">; (skips next if false)</span>
-<span style="color: #59f;">sub.w</span> r0, r0, r0     <span style="color: #6c6;">; then reset counter</span>
+mov r2.x, r0.x       ; Make a copy of the counter
+ge.w r2, r2, r1      ; If counter > colour count
+sub.w ri, ri, r2     ; (skips next if false)
+sub.w r0, r0, r0     ; then reset counter
 
-<span style="color: #59f;">set</span> r6, <span style="color: #0ff;">$04ff</span>        <span style="color: #6c6;">; Wait duration</span>
-<span style="color: #59f;">slp.w</span> r6             <span style="color: #6c6;">; Sleep for duration</span>
-<span style="color: #59f;">mov</span> <span style="color: #e83;">[r4.x]</span>, r1.x     <span style="color: #6c6;">; Set ship colour</span>
-<span style="color: #59f;">jmp</span> <span style="color: #fff;">:loop</span></div>
+set r6, $04ff        ; Wait duration
+slp.w r6             ; Sleep for duration
+mov [r4.x], r1.x     ; Set ship colour
+jmp :loop
+```
 
 <a name="instruction-set"></a>
 
