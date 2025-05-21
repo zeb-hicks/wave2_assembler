@@ -27,15 +27,12 @@ struct Cli {
     /// Input file path
     #[arg()]
     input: PathBuf,
-    /// Memory descriptor file path, describes the contents of 0x00->0x3f
-    #[arg(short, long)]
-    memory: Option<PathBuf>,
+    /// Output as Wave2 binary format
+    #[arg(short, long, default_value_t = false)]
+    binary: bool,
     /// Output file path, only logs to stdout if not set
     #[arg(short, long)]
     output: Option<PathBuf>,
-    /// Output in binary format
-    #[arg(short, long, default_value_t = false)]
-    binary: bool,
     /// Log level, valid values are: OFF, ERROR, WARN, INFO, DEBUG, TRACE
     #[arg(short, long, default_value_t = LevelFilter::Warn)]
     log_level: LevelFilter,
@@ -97,8 +94,6 @@ fn main() -> eyre::Result<()> {
         }
     };
 
-
-
     let mut insts = Vec::new();
     loop {
         let inst = parser.parse_inst(&mut ctx);
@@ -134,23 +129,7 @@ fn main() -> eyre::Result<()> {
         info!("{:x}", printer);
         if let Some(output) = cli.output {
             if cli.binary {
-                if let Some(mem) = cli.memory {
-                    let mem = fs::read_to_string(mem).context("failed to read memory file")?;
-                    let mem = parse_mem(mem);
-                    let mut header = b"MWvm\x01\0\0".to_vec();
-                    let memlen = mem.len().min(60) as u8;
-                    header[5] = header.len() as u8;
-                    header[6] = memlen + header[5];
-                    let code = code
-                        .iter()
-                        .flat_map(|&x| x.to_be_bytes());
-                    let buffer = header
-                        .into_iter()
-                        .chain(mem)
-                        .chain(code)
-                        .collect::<Vec<u8>>();
-                    fs::write(&output, buffer).context("failed to write output file")?;
-                } else if mem_lines.len() > 0 {
+                if mem_lines.len() > 0 {
                     let mem = parse_mem(mem_str);
                     let mut header = b"MWvm\x01\0\0".to_vec();
                     let memlen = mem.len().min(60) as u8;
@@ -192,7 +171,12 @@ fn main() -> eyre::Result<()> {
 
 fn parse_mem(mem: String) -> Vec<u8> {
     // Collect all the non-whitespace characters.
-    let chars = mem.chars().filter(|c| !c.is_whitespace());
+    let lines = mem.lines().map(|l| l.trim().split(";").next().unwrap());
+    let chars = lines
+        .flat_map(|l| l.chars())
+        .filter(|c| !c.is_whitespace())
+        .filter(|c| c.is_ascii_hexdigit());
+    // let chars = mem.chars().filter(|c| !c.is_whitespace());
     // Convert the characters to u8
     let mut out: Vec<u8> = Vec::new();
     let mut buffer: u8 = 0;
