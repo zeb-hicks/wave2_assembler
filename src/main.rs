@@ -66,27 +66,24 @@ fn main() -> eyre::Result<()> {
     let mut in_code = true;
 
     for line in src_str.lines() {
-        match line {
-            ".memory" => {
-                in_code = false;
-                continue;
-            }
-            ".code" => {
-                in_code = true;
-                continue;
-            }
-            _ => {
-                if in_code {
-                    code_lines.push(line.to_string());
-                } else {
-                    mem_lines.push(line.to_string());
-                }
+        if line.trim().starts_with(".memory") {
+            in_code = false;
+        } else if line.trim().starts_with(".code") {
+            in_code = true;
+        } else {
+            if in_code {
+                code_lines.push(line.to_string());
+            } else {
+                mem_lines.push(line.to_string());
             }
         }
     }
 
     let code_str = code_lines.join("\n");
     let mem_str = mem_lines.join("\n");
+
+    // println!("Memory: {:#?}", mem_lines);
+    // println!("Code: {:#?}", code_lines);
 
     let mut parser = match Parser::new(code_str.as_str()) {
         Ok(parser) => parser,
@@ -127,46 +124,77 @@ fn main() -> eyre::Result<()> {
                 return Err(eyre::eyre!("Failed to generate code."));
             }
         };
-        let printer = CodePrinter(code.as_slice());
-        info!("{:x}", printer);
+        let mem_bytes = parse_mem(mem_str);
+        let mem = mem_bytes
+            .chunks_exact(2)
+            .map(|chunk| {
+                let mut word: u16 = 0;
+                word |= (chunk[0] as u16) << 8;
+                word |= chunk[1] as u16;
+                word
+            })
+            .collect::<Vec<u16>>();
+        let buffer: Vec<u16> = if mem.len() > 0 {
+            mem.iter()
+                .chain(code.iter())
+                .copied()
+                .collect::<Vec<u16>>()
+        } else {
+            code.iter()
+                .copied()
+                .collect::<Vec<u16>>()
+        };
+        let code_printer = CodePrinter(buffer.as_slice());
+        info!("{:x}", code_printer);
         if let Some(output) = cli.output {
             if cli.binary {
                 if mem_lines.len() > 0 {
-                    let mem = parse_mem(mem_str);
                     let mut header = b"MWvm\x01\0\0".to_vec();
                     let memlen = mem.len().min(60) as u8;
                     header[5] = header.len() as u8;
                     header[6] = memlen + header[5];
+
                     let code = code
                         .iter()
-                        .flat_map(|&x| x.to_be_bytes());
+                        .flat_map(|&x| x.to_be_bytes())
+                        .collect::<Vec<u8>>();
+
+                    let mem = mem
+                        .iter()
+                        .flat_map(|&x| x.to_be_bytes())
+                        .collect::<Vec<u8>>();
+
                     let buffer = header
                         .into_iter()
                         .chain(mem)
                         .chain(code)
                         .collect::<Vec<u8>>();
+
                     fs::write(&output, buffer).context("failed to write output file")?;
                 } else {
                     let mut header = b"MWvm\x01\0\0".to_vec();
                     header[5] = header.len() as u8;
                     header[6] = header.len() as u8;
-                    let codebytes = code
+
+                    let code = code
                         .iter()
                         .flat_map(|&x| x.to_be_bytes())
                         .collect::<Vec<u8>>();
+
                     let buffer = header
                         .into_iter()
-                        .chain(codebytes)
+                        .chain(code)
                         .collect::<Vec<u8>>();
+
                     fs::write(&output, buffer).context("failed to write output file")?;
                 }
                 info!("Wrote compiled binary to \"{}\"", output.display())
             } else {
-                fs::write(&output, format!("{:x}", printer)).context("failed to write output file")?;
+                fs::write(&output, format!("{:x}", code_printer)).context("failed to write output file")?;
                 info!("Wrote compiled hex to \"{}\"", output.display())
             }
         } else {
-            println!("{:x}", printer);
+            println!("{:x}", code_printer);
         }
     }
 
