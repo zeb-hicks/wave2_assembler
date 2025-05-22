@@ -150,7 +150,7 @@ fn main() -> eyre::Result<()> {
             if cli.binary {
                 if mem_lines.len() > 0 {
                     let mut header = b"MWvm\x01\0\0".to_vec();
-                    let memlen = mem.len().min(60) as u8;
+                    let memlen = 2 * mem.len() as u8;
                     header[5] = header.len() as u8;
                     header[6] = memlen + header[5];
 
