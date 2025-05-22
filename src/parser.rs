@@ -508,7 +508,7 @@ impl<'a> Parser<'a> {
                     // this is not critical to fail on, it's mostly for clarity in writing
                     ctx.add_diag(Diagnostic::new(
                         String::from("lhs and rhs of move must select the same elements"),
-                        Span::DUMMY,
+                        Span::between(src.span(), dst.span()).unwrap_or(self.current.span()),
                     ));
                 }
 
@@ -537,7 +537,13 @@ impl<'a> Parser<'a> {
             },
 
             // mem-to-mem moves do not exist
-            (LoadStoreOp::MemOp(_), LoadStoreOp::MemOp(_)) => todo!(),
+            (LoadStoreOp::MemOp(_), LoadStoreOp::MemOp(_)) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("cannot move between two pointers directly"),
+                    self.current.span(),
+                ));
+                return Err(());
+            },
         };
 
         let span = match Span::between(span_start, span) {
