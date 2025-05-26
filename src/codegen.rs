@@ -30,8 +30,8 @@ pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
                 GI::JumpToLabel(_) => {
                     addr += 2;
                 },
-                GI::SetToLabel(_, _) => {
-                    addr += 2;
+                GI::LabelLiteral(_) => {
+                    addr += 1;
                 },
                 _ => {
                     addr += 1;
@@ -55,14 +55,8 @@ pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
                     ));
                 }
             },
-            GI::SetToLabel(dst, label) => {
+            GI::LabelLiteral(label) => {
                 if let Some(addr) = labels.get(label) {
-                    code.push(op_from_parts(
-                        *dst,
-                        0xf,
-                        0x6,
-                        opcode::MOVE,
-                    ));
                     code.push(*addr);
                 } else {
                     return Err(Diagnostic::new(
@@ -85,8 +79,8 @@ pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
 pub enum GI {
     Instruction(u16),
     LabelDefinition(u64),
+    LabelLiteral(u64),
     JumpToLabel(u64),
-    SetToLabel(u8, u64),
 }
 
 fn gen_inst(inst: Instruction) -> Vec<GI> {
@@ -98,8 +92,8 @@ fn gen_inst(inst: Instruction) -> Vec<GI> {
         LabelJump { label } => {
             vec![GI::JumpToLabel(label)]
         },
-        LabelSet { dst, label } => {
-            vec![GI::SetToLabel(dst.idx(), label)]
+        LabelLiteral { label } => {
+            vec![GI::LabelLiteral(label)]
         },
         Nop => {
             vec![GI::Instruction(op_from_parts(

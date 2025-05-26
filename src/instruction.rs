@@ -117,7 +117,7 @@ pub enum InstructionKind {
 
     LabelDefinition { label: u64 },
     LabelJump { label: u64 },
-    LabelSet { dst: RegSelector, label: u64 },
+    LabelLiteral { label: u64 },
 
     Raw { val: u16, }
 }

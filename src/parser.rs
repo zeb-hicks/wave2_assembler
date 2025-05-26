@@ -181,6 +181,8 @@ impl<'a> Parser<'a> {
                 "set3" => self.parse_set(ctx, 3),
                 "set4" => self.parse_set(ctx, 4),
                 "jmp" | "jump" => self.parse_jump(ctx),
+                "je" | "jeq" | "jc" | "jcp" => self.parse_cjump(ctx, ConditionalJumpMode::Equal),
+                "jne" | "jnc" | "jcc" => self.parse_cjump(ctx, ConditionalJumpMode::NotEqual),
 
                 _ => {
                     ctx.add_diag(Diagnostic::new(
@@ -277,7 +279,7 @@ impl<'a> Parser<'a> {
                 LexerToken::Label(label) => {
                     ivec.push(
                         Instruction::new(
-                            InstructionKind::LabelSet { dst: dst, label: hash_label(label) },
+                            InstructionKind::LabelLiteral { label: hash_label(label) },
                             self.current.span(),
                         )
                     );
@@ -301,7 +303,7 @@ impl<'a> Parser<'a> {
         }
 
         for v in &ivec {
-            if matches!(v.kind(), InstructionKind::LabelSet { .. }) {
+            if matches!(v.kind(), InstructionKind::LabelLiteral { .. }) {
                 self.bump(ctx);
             }
         }
@@ -376,6 +378,103 @@ impl<'a> Parser<'a> {
         );
 
         vec![mov, lit]
+    }
+
+    fn parse_cjump(&mut self, ctx: &mut Context, mode: ConditionalJumpMode) -> Vec<Instruction> {
+        let span_start = self.current.span();
+        self.bump(ctx);
+
+        let dst = self.parse_reg(ctx).unwrap_or_else(|d| {
+            ctx.add_diag(d);
+            // use a dummy selector to allow recovery
+            RegSelector::new_gpr(0, Span::DUMMY)
+        });
+
+        let first = match mode {
+            ConditionalJumpMode::Equal => {
+                Instruction::new(
+                    InstructionKind::NotDst { dst: dst.clone() },
+                    dst.span(),
+                )
+            },
+            ConditionalJumpMode::NotEqual => {
+                Instruction::new(
+                    InstructionKind::Nop,
+                    dst.span(),
+                )
+            },
+        };
+
+        let sub = Instruction::new(
+            InstructionKind::RSub {
+                size: OpSize::Word,
+                src: dst.clone(),
+                dst: RegSelector::new_gpr(7, dst.span()),
+            },
+            dst.span(),
+        );
+
+        self.bump(ctx);
+
+        let skip = Instruction::new(
+            InstructionKind::Raw {
+                val: 0x0f96, // skip2
+            },
+            dst.span(),
+        );
+
+        let k = match &self.current.kind() {
+            LexerToken::Label(label) => {
+                InstructionKind::LabelJump { label: hash_label(label) }
+            },
+            LexerToken::Number(num) => {
+                InstructionKind::Raw { val: *num }
+            },
+            _ => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("expected a valid jump offset"),
+                    self.current.span(),
+                ));
+                InstructionKind::Raw { val: 0 }
+            }
+        };
+
+        self.bump(ctx);
+
+        let span = match Span::between(span_start, self.current.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("invalid span for jump offset"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
+        let lit = Instruction::new(
+            k,
+            span,
+        );
+
+        let mov = Instruction::new(
+            InstructionKind::Load {
+                mem: MemoryOperand::new(
+                    RegSelector::new_gpr(7, self.current.span()),
+                    false,
+                    true,
+                    self.current.span(),
+                ),
+                dst: SetRegSelector::new(
+                    RegSelector::new_gpr(7, self.current.span()),
+                    SetSelector::from_bits(0b1, self.current.span()),
+                    self.current.span(),
+                ),
+            },
+            self.current.span(),
+        );
+
+        vec![first, sub, skip, mov, lit]
     }
 
     fn parse_nop(&mut self, ctx: &mut Context) -> Vec<Instruction> {
@@ -1846,4 +1945,10 @@ enum WSelectMode {
 enum LoadStoreOp {
     MemOp(MemoryOperand),
     RegOp(SetRegSelector),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ConditionalJumpMode {
+    Equal,
+    NotEqual,
 }
