@@ -406,10 +406,14 @@ impl<'a> Parser<'a> {
         };
 
         let sub = Instruction::new(
-            InstructionKind::RSub {
-                size: OpSize::Word,
-                src: dst.clone(),
-                dst: RegSelector::new_gpr(7, dst.span()),
+            InstructionKind::WSub {
+                dst: dst.clone(),
+                // dst: RegSelector::new_gpr(7, dst.span()),
+                src: SwizzleRegSelector::new(
+                    RegSelector::new_gpr(7, dst.span()),
+                    SwizzleSelector::new(0, dst.span()),
+                    dst.span(),
+                ),
             },
             dst.span(),
         );

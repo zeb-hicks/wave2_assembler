@@ -320,6 +320,10 @@ impl fmt::Debug for SetSelector {
 pub struct SwizzleSelector(u8, Span);
 
 impl SwizzleSelector {
+    pub fn new(bits: u8, span: Span) -> Self {
+        Self(bits, span)
+    }
+
     pub fn empty(span: Span) -> Self {
         Self(0, span)
     }
