@@ -2,6 +2,10 @@
 name = "waveasm"
 version = "0.1.0"
 edition = "2021"
+license = "MIT"
+description = "Assembler for the Wave2 CPU Architecture"
+homepage = "https://nimphio.us/wave2/"
+repository = "https://github.com/zeb-hicks/wave2_assembler"
 
 [dependencies]
 log = { version = "0.4.27", features = ["std"] }
