@@ -13,9 +13,15 @@ use crate::{
     lexer::{Lexer, Token, LexerToken},
 };
 
+pub enum ParserSection {
+    Memory,
+    Code
+}
+
 pub struct Parser<'a> {
     lexer: Lexer<'a>,
     current: Token,
+    section: ParserSection,
 }
 
 pub fn hash_label(label: &str) -> u64 {
@@ -33,7 +39,31 @@ impl<'a> Parser<'a> {
                 return Err(err);
             }
         };
-        Ok(Self { lexer, current })
+        let section = ParserSection::Code;
+        Ok(Self { lexer, current, section })
+    }
+
+    fn parse_section(&mut self, ctx: &mut Context) -> Result<(), Diagnostic> {
+        let section_label = self.expect_ident().map_err(|d| ctx.add_diag(d));
+        let section_str = section_label.clone().map(|s| s.to_lowercase());
+        match section_str.as_deref() {
+            Ok("code") => {
+                self.section = ParserSection::Code;
+                self.bump(ctx);
+            }
+            Ok("memory") => {
+                self.section = ParserSection::Memory;
+                self.bump(ctx);
+            }
+            _ => {
+                self.bump(ctx);
+                ctx.add_diag(Diagnostic::new(
+                    format!("Invalid section declaration {:?}", section_label),
+                    self.current.span()
+                ));
+            }
+        }
+        return Ok(());
     }
 
     pub fn parse_inst(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, Diagnostic> {
@@ -45,6 +75,40 @@ impl<'a> Parser<'a> {
 
         if self.current.kind() == &LexerToken::EoF {
             return Ok(vec![]);
+        }
+
+        if self.current.kind() == &LexerToken::Dot {
+            // Start of a section definition
+            self.bump(ctx);
+            self.parse_section(ctx)?;
+        }
+
+        while matches!(self.section, ParserSection::Memory) {
+            println!("In memory at {:?}", self.current);
+            match self.current.kind() {
+                LexerToken::Number(_) |
+                LexerToken::Newline => {
+                    println!("Found valid memory {:?}", self.current);
+                    self.bump(ctx);
+                }
+                LexerToken::Dot => {
+                    println!("Found dot {:?}", self.current);
+                    self.bump(ctx);
+                    self.parse_section(ctx)?;
+                }
+                _ => {
+                    println!("Invalid {:?}", self.current);
+                    ctx.add_diag(Diagnostic::new(
+                        format!("Invalid section declaration"),
+                        self.current.span()
+                    ));
+                    return Ok(vec![]);
+                }
+            }
+        }
+
+        while matches!(self.current.kind(), LexerToken::Newline) {
+            self.bump(ctx);
         }
 
         if self.current.kind() == &LexerToken::Literal {
@@ -407,10 +471,10 @@ impl<'a> Parser<'a> {
 
         let sub = Instruction::new(
             InstructionKind::WSub {
-                dst: dst.clone(),
+                dst: RegSelector::new_gpr(7, dst.span()),
                 // dst: RegSelector::new_gpr(7, dst.span()),
                 src: SwizzleRegSelector::new(
-                    RegSelector::new_gpr(7, dst.span()),
+                    dst.clone(),
                     SwizzleSelector::new(0, dst.span()),
                     dst.span(),
                 ),
@@ -626,12 +690,12 @@ impl<'a> Parser<'a> {
             }
             (LoadStoreOp::MemOp(mem), LoadStoreOp::RegOp(dst)) => {
                 // the dst must be a writable register
-                if !dst.reg().is_gpr() {
-                    ctx.add_diag(Diagnostic::new(
-                        format!("expected dst to be a writable register, got {}", dst.reg()),
-                        dst.span(),
-                    ));
-                }
+                // if !dst.reg().is_gpr() {
+                //     ctx.add_diag(Diagnostic::new(
+                //         format!("expected dst to be a writable register, got {}", dst.reg()),
+                //         dst.span(),
+                //     ));
+                // }
 
                 (InstructionKind::Load { mem, dst }, mem.span())
             }

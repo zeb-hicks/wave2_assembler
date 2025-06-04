@@ -79,13 +79,13 @@ fn main() -> eyre::Result<()> {
         }
     }
 
-    let code_str = code_lines.join("\n");
+    // let code_str = code_lines.join("\n");
     let mem_str = mem_lines.join("\n");
 
     // println!("Memory: {:#?}", mem_lines);
     // println!("Code: {:#?}", code_lines);
 
-    let mut parser = match Parser::new(code_str.as_str()) {
+    let mut parser = match Parser::new(src_str.as_str()) {
         Ok(parser) => parser,
         Err(e) => {
             ctx.add_diag(e);
