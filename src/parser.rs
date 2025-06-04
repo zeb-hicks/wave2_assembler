@@ -84,20 +84,16 @@ impl<'a> Parser<'a> {
         }
 
         while matches!(self.section, ParserSection::Memory) {
-            println!("In memory at {:?}", self.current);
             match self.current.kind() {
                 LexerToken::Number(_) |
                 LexerToken::Newline => {
-                    println!("Found valid memory {:?}", self.current);
                     self.bump(ctx);
                 }
                 LexerToken::Dot => {
-                    println!("Found dot {:?}", self.current);
                     self.bump(ctx);
                     self.parse_section(ctx)?;
                 }
                 _ => {
-                    println!("Invalid {:?}", self.current);
                     ctx.add_diag(Diagnostic::new(
                         format!("Invalid section declaration"),
                         self.current.span()
