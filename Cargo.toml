@@ -1,6 +1,6 @@
 [package]
 name = "waveasm"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 license = "MIT"
 description = "Assembler for the Wave2 CPU Architecture"
@@ -13,9 +13,9 @@ simple_logger = "5.0.0"
 
 thiserror = "2.0.12"
 eyre = "0.6"
-color-eyre = "0.6.0"
+color-eyre = "0.6.5"
 
-bitflags = "2.9.0"
+bitflags = "2.9.1"
 
-clap = { version = "4.5.38", features = ["derive"] }
+clap = { version = "4.5.39", features = ["derive"] }
 clap-stdin = "0.6.0"
