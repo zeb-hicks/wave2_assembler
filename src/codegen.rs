@@ -28,7 +28,7 @@ pub fn gen(insts: &[Instruction]) -> Result<Vec<u16>, Diagnostic> {
                     labels.insert(*label, addr);
                 },
                 GI::JumpToLabel(_) => {
-                    addr += 2;
+                    addr += 1;
                 },
                 GI::LabelLiteral(_) => {
                     addr += 1;
