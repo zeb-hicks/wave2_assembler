@@ -21,7 +21,7 @@ Assembler for the [Wave2](https://github.com/Meisaka/MeiVM2/) architecture.
 
 This example program cycles the user's ship colour through a list of colours stored in the constant register.
 
-```
+```w2s
 ; This section describes the memory layout of the constant registers
 .memory
 
