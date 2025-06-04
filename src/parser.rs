@@ -86,6 +86,7 @@ impl<'a> Parser<'a> {
         while matches!(self.section, ParserSection::Memory) {
             match self.current.kind() {
                 LexerToken::Number(_) |
+                LexerToken::Ident(_) |
                 LexerToken::Newline => {
                     self.bump(ctx);
                 }
@@ -95,7 +96,7 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     ctx.add_diag(Diagnostic::new(
-                        format!("Invalid section declaration"),
+                        format!("Invalid token in memory region"),
                         self.current.span()
                     ));
                     return Ok(vec![]);
