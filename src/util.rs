@@ -1,5 +1,6 @@
 use std::fmt::{UpperHex, LowerHex};
 
+#[allow(unused)]
 pub struct ArrayPrinter<'a>(pub &'a [u16]);
 
 impl<'a> UpperHex for ArrayPrinter<'a> {
