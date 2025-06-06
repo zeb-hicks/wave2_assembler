@@ -27,7 +27,7 @@ mod util;
 #[command(about = "WaveVM Assembly Compiler", long_about = None)]
 struct Cli {
     /// Input file path
-    #[arg()]
+    #[arg(default_value = "-")]
     input: FileOrStdin<String>,
     /// Output as Wave2 binary format
     #[arg(short, long, default_value_t = false)]
