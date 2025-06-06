@@ -10,7 +10,7 @@ use diag::Context;
 use parser::Parser;
 use source::Source;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use util::CodePrinter;
 
@@ -148,57 +148,73 @@ fn main() -> eyre::Result<()> {
         info!("{:x}", code_printer);
         if let Some(output) = cli.output {
             if cli.binary {
-                if mem_lines.len() > 0 {
-                    let mut header = b"MWvm\x01\0\0".to_vec();
-                    let memlen = 2 * mem.len() as u8;
-                    header[5] = header.len() as u8;
-                    header[6] = memlen + header[5];
-
-                    let code = code
-                        .iter()
-                        .flat_map(|&x| x.to_be_bytes())
-                        .collect::<Vec<u8>>();
-
-                    let mem = mem
-                        .iter()
-                        .flat_map(|&x| x.to_be_bytes())
-                        .collect::<Vec<u8>>();
-
-                    let buffer = header
-                        .into_iter()
-                        .chain(mem)
-                        .chain(code)
-                        .collect::<Vec<u8>>();
-
-                    fs::write(&output, buffer).context("failed to write output file")?;
-                } else {
-                    let mut header = b"MWvm\x01\0\0".to_vec();
-                    header[5] = header.len() as u8;
-                    header[6] = header.len() as u8;
-
-                    let code = code
-                        .iter()
-                        .flat_map(|&x| x.to_be_bytes())
-                        .collect::<Vec<u8>>();
-
-                    let buffer = header
-                        .into_iter()
-                        .chain(code)
-                        .collect::<Vec<u8>>();
-
-                    fs::write(&output, buffer).context("failed to write output file")?;
-                }
-                info!("Wrote compiled binary to \"{}\"", output.display())
+                let buffer = build_buffer(mem_lines, code, mem)?;
+                fs::write(&output, buffer).context("failed to write output file")?;
+                info!("Wrote compiled binary to \"{}\"", output.display());
             } else {
                 fs::write(&output, format!("{:x}", code_printer)).context("failed to write output file")?;
                 info!("Wrote compiled hex to \"{}\"", output.display())
             }
         } else {
-            println!("{:x}", code_printer);
+            if cli.binary {
+                let buffer = build_buffer(mem_lines, code, mem)?;
+                let arr = buffer.as_slice();
+                std::io::stdout().write_all(arr)?;
+                println!();
+            } else {
+                println!("{:x}", code_printer);
+            }
         }
     }
 
     Ok(())
+}
+
+fn build_buffer(mem_lines: Vec<String>, code: Vec<u16>, mem: Vec<u16>) -> Result<Vec<u8>, eyre::Error> {
+    let buffer: Vec<u8>;
+
+    if mem_lines.len() > 0 {
+        let mut header = b"MWvm\x01\0\0".to_vec();
+        let memlen = 2 * mem.len() as u8;
+        header[5] = header.len() as u8;
+        header[6] = memlen + header[5];
+
+        let code = code
+            .iter()
+            .flat_map(|&x| x.to_be_bytes())
+            .collect::<Vec<u8>>();
+
+        let mem = mem
+            .iter()
+            .flat_map(|&x| x.to_be_bytes())
+            .collect::<Vec<u8>>();
+
+        buffer = header
+            .into_iter()
+            .chain(mem)
+            .chain(code)
+            .collect::<Vec<u8>>();
+
+        // fs::write(output, buffer).context("failed to write output file")?;
+    } else {
+        let mut header = b"MWvm\x01\0\0".to_vec();
+        header[5] = header.len() as u8;
+        header[6] = header.len() as u8;
+
+        let code = code
+            .iter()
+            .flat_map(|&x| x.to_be_bytes())
+            .collect::<Vec<u8>>();
+
+        buffer = header
+            .into_iter()
+            .chain(code)
+            .collect::<Vec<u8>>();
+
+        // fs::write(output, buffer).context("failed to write output file")?;
+    };
+
+    Ok(buffer)
 }
 
 fn parse_mem(mem: String) -> Vec<u8> {
