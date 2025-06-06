@@ -1,4 +1,4 @@
-#![feature(debug_closure_helpers)]
+// #![feature(debug_closure_helpers)]
 #![allow(clippy::uninlined_format_args)]
 
 use clap::Parser as _;

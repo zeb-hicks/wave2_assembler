@@ -290,27 +290,43 @@ impl Eq for SetSelector {}
 
 impl fmt::Debug for SetSelector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("SetSelector")
-            .field_with("selector", |f| {
-                if self.0 == 0 {
-                    return write!(f, "<none>");
-                }
-                if self.0 & 0b0001 != 0 {
-                    write!(f, "x")?;
-                }
-                if self.0 & 0b0010 != 0 {
-                    write!(f, "y")?;
-                }
-                if self.0 & 0b0100 != 0 {
-                    write!(f, "z")?;
-                }
-                if self.0 & 0b1000 != 0 {
-                    write!(f, "w")?;
-                }
-                Ok(())
-            })
-            .field("span", &self.span())
-            .finish()
+        if self.0 == 0 {
+            write!(f, "<none>")?;
+        }
+        if self.0 & 0b0001 != 0 {
+            write!(f, "x")?;
+        }
+        if self.0 & 0b0010 != 0 {
+            write!(f, "y")?;
+        }
+        if self.0 & 0b0100 != 0 {
+            write!(f, "z")?;
+        }
+        if self.0 & 0b1000 != 0 {
+            write!(f, "w")?;
+        }
+        Ok(())
+        // f.debug_struct("SetSelector")
+        //     .field_with("selector", |f| {
+        //         if self.0 == 0 {
+        //             return write!(f, "<none>");
+        //         }
+        //         if self.0 & 0b0001 != 0 {
+        //             write!(f, "x")?;
+        //         }
+        //         if self.0 & 0b0010 != 0 {
+        //             write!(f, "y")?;
+        //         }
+        //         if self.0 & 0b0100 != 0 {
+        //             write!(f, "z")?;
+        //         }
+        //         if self.0 & 0b1000 != 0 {
+        //             write!(f, "w")?;
+        //         }
+        //         Ok(())
+        //     })
+        //     .field("span", &self.span())
+        //     .finish()
     }
 }
 
