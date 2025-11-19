@@ -8,14 +8,14 @@ homepage = "https://nimphio.us/wave2/"
 repository = "https://github.com/zeb-hicks/wave2_assembler"
 
 [dependencies]
-log = { version = "0.4.27", features = ["std"] }
-simple_logger = "5.0.0"
+log = { version = "0.4.28", features = ["std"] }
+simple_logger = "5.1.0"
 
-thiserror = "2.0.12"
+thiserror = "2.0.17"
 eyre = "0.6"
 color-eyre = "0.6.5"
 
-bitflags = "2.9.1"
+bitflags = "2.10.0"
 
-clap = { version = "4.5.39", features = ["derive"] }
-clap-stdin = "0.6.0"
+clap = { version = "4.5.52", features = ["derive"] }
+clap-stdin = "0.8.0"
