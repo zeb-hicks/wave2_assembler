@@ -19,5 +19,3 @@ bitflags = "2.10.0"
 
 clap = { version = "4.5.52", features = ["derive"] }
 clap-stdin = "0.8.0"
-
-meivm2 = { version = "0.1.0", path = "./MeiVM2" }
