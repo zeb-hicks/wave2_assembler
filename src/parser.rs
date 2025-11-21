@@ -294,7 +294,7 @@ impl<'a> Parser<'a> {
             }
         };
 
-        let kind = InstructionKind::Sub { size: OpSize::Word, src: dst, dst: dst };
+        let kind = InstructionKind::Zero { dst: dst };
 
         let span = match Span::between(span_start, self.current.span()) {
             Ok(span) => span,

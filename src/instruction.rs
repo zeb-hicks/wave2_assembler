@@ -77,8 +77,6 @@ pub enum InstructionKind {
     // dst = Carry(dest - src)
     LessEqU { size: OpSize, src: RegSelector, dst: RegSelector, },
 
-    Zero { dst: RegSelector, },
-
     // =================
     // SHIFTS
     // =================
@@ -102,6 +100,7 @@ pub enum InstructionKind {
     // BITOPS
     // =================
     All { dst: RegSelector, },
+    Zero { dst: RegSelector, },
     One { dst: RegSelector, },
     Swap { src: RegSelector, dst: RegSelector, },
     NotSrc { src: RegSelector, dst: RegSelector, },

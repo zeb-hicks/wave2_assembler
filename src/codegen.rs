@@ -363,7 +363,12 @@ fn gen_inst(inst: Instruction) -> Vec<GI> {
             bit_ops::ALL,
             opcode::BITOP
         ))],
-        Zero { dst} => vec![GI::Instruction(math_op(math_ops::SUB, OpSize::Word, dst, dst))],
+        Zero { dst} => vec![GI::Instruction(op_from_parts(
+            dst.idx(),
+            dst.idx(),
+            bit_ops::XOR,
+            opcode::BITOP,
+        ))],
         One { dst } => vec![GI::Instruction(op_from_parts(
             dst.idx(),
             0,
