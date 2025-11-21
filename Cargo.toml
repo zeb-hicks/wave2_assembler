@@ -1,6 +1,6 @@
 [package]
 name = "waveasm"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 license = "MIT"
 description = "Assembler for the Wave2 CPU Architecture"
@@ -19,3 +19,5 @@ bitflags = "2.10.0"
 
 clap = { version = "4.5.52", features = ["derive"] }
 clap-stdin = "0.8.0"
+
+meivm2 = { version = "0.1.0", path = "./MeiVM2" }

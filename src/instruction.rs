@@ -77,6 +77,8 @@ pub enum InstructionKind {
     // dst = Carry(dest - src)
     LessEqU { size: OpSize, src: RegSelector, dst: RegSelector, },
 
+    Zero { dst: RegSelector, },
+
     // =================
     // SHIFTS
     // =================

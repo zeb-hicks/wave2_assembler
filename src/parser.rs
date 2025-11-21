@@ -184,6 +184,8 @@ impl<'a> Parser<'a> {
 
                 // All { dst: RegSelector, },
                 "all" => self.parse_bit_op_unary(ctx, BitOpMode::All)?,
+                // Zero { dst: RegSelector, },
+                "zero" => self.parse_zero(ctx)?,
                 // One { dst: RegSelector, },
                 "one" => self.parse_bit_op_unary(ctx, BitOpMode::One)?,
                 // Swap { src: RegSelector, dst: RegSelector, },
@@ -274,6 +276,41 @@ impl<'a> Parser<'a> {
         };
 
         Ok(ret)
+    }
+
+    fn parse_zero(&mut self, ctx: &mut Context) -> Result<Vec<Instruction>, ()> {
+        self.bump(ctx);
+        let span_start = self.current.span();
+
+        let dst = match self.parse_reg(ctx) {
+            Ok(dst) => dst,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("expected a register for zero instruction"),
+                    self.current.span(),
+                ));
+                // use a dummy selector to allow recovery
+                RegSelector::new_gpr(0, Span::DUMMY)
+            }
+        };
+
+        let kind = InstructionKind::Sub { size: OpSize::Word, src: dst, dst: dst };
+
+        let span = match Span::between(span_start, self.current.span()) {
+            Ok(span) => span,
+            Err(_) => {
+                ctx.add_diag(Diagnostic::new(
+                    String::from("bad span for Zero instruction"),
+                    self.current.span(),
+                ));
+                Span::DUMMY
+            }
+        };
+
+        Ok(vec![Instruction::new(
+            kind,
+            span
+        )])
     }
 
     fn parse_skip(&mut self, ctx: &mut Context, count: usize) -> Vec<Instruction> {
