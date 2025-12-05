@@ -1,6 +1,6 @@
 [package]
 name = "waveasm"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 license = "MIT"
 description = "Assembler for the Wave2 CPU Architecture"
@@ -8,14 +8,14 @@ homepage = "https://nimphio.us/wave2/"
 repository = "https://github.com/zeb-hicks/wave2_assembler"
 
 [dependencies]
-log = { version = "0.4.28", features = ["std"] }
+log = { version = "0.4.29", features = ["std"] }
 simple_logger = "5.1.0"
 
 thiserror = "2.0.17"
-eyre = "0.6"
+eyre = "0.6.12"
 color-eyre = "0.6.5"
 
 bitflags = "2.10.0"
 
-clap = { version = "4.5.52", features = ["derive"] }
+clap = { version = "4.5.53", features = ["derive"] }
 clap-stdin = "0.8.0"
