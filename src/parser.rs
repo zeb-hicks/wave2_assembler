@@ -1089,12 +1089,12 @@ impl<'a> Parser<'a> {
         Ok(vec![
             Instruction::new(
                 match mode {
-                    SpecOpMode::HorizontalAdd => InstructionKind::HorizontalAdd { src: lhs, dst: rhs },
-                    SpecOpMode::MultiplySaturate => InstructionKind::MultiplySaturate { src: lhs, dst: rhs },
-                    SpecOpMode::MultiplyLow => InstructionKind::MultiplyLow { src: lhs, dst: rhs },
-                    SpecOpMode::MultiplyHigh => InstructionKind::MultiplyHigh { src: lhs, dst: rhs },
-                    SpecOpMode::Divide => InstructionKind::Divide { src: lhs, dst: rhs },
-                    SpecOpMode::ReciprocalDivide => InstructionKind::ReciprocalDivide { src: lhs, dst: rhs },
+                    SpecOpMode::HorizontalAdd => InstructionKind::HorizontalAdd { src: rhs, dst: lhs },
+                    SpecOpMode::MultiplySaturate => InstructionKind::MultiplySaturate { src: rhs, dst: lhs },
+                    SpecOpMode::MultiplyLow => InstructionKind::MultiplyLow { src: rhs, dst: lhs },
+                    SpecOpMode::MultiplyHigh => InstructionKind::MultiplyHigh { src: rhs, dst: lhs },
+                    SpecOpMode::Divide => InstructionKind::Divide { src: rhs, dst: lhs },
+                    SpecOpMode::ReciprocalDivide => InstructionKind::ReciprocalDivide { src: rhs, dst: lhs },
                 },
                 span,
             )
