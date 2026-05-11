@@ -144,7 +144,9 @@ fn main() -> eyre::Result<()> {
                 .copied()
                 .collect::<Vec<u16>>()
         };
-        let code_printer = CodePrinter(buffer.as_slice());
+        let buffer_printer = CodePrinter(buffer.as_slice());
+        let code_printer = CodePrinter(code.as_slice());
+        let mem_printer = CodePrinter(mem.as_slice());
         info!("{:x}", code_printer);
         if let Some(output) = cli.output {
             if cli.binary {
@@ -152,7 +154,7 @@ fn main() -> eyre::Result<()> {
                 fs::write(&output, buffer).context("failed to write output file")?;
                 info!("Wrote compiled binary to \"{}\"", output.display());
             } else {
-                fs::write(&output, format!("{:x}", code_printer)).context("failed to write output file")?;
+                fs::write(&output, format!("{:x}\n{:x}", mem_printer, code_printer)).context("failed to write output file")?;
                 info!("Wrote compiled hex to \"{}\"", output.display())
             }
         } else {
@@ -162,7 +164,8 @@ fn main() -> eyre::Result<()> {
                 std::io::stdout().write_all(arr)?;
                 println!();
             } else {
-                println!("{:x}", code_printer);
+                println!("[0000]: {:x}", mem_printer);
+                println!("[0040]: {:x}", code_printer);
             }
         }
     }
