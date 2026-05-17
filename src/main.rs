@@ -134,17 +134,17 @@ fn main() -> eyre::Result<()> {
                 word
             })
             .collect::<Vec<u16>>();
-        let buffer: Vec<u16> = if mem.len() > 0 {
-            mem.iter()
-                .chain(code.iter())
-                .copied()
-                .collect::<Vec<u16>>()
-        } else {
-            code.iter()
-                .copied()
-                .collect::<Vec<u16>>()
-        };
-        let buffer_printer = CodePrinter(buffer.as_slice());
+        // let buffer: Vec<u16> = if mem.len() > 0 {
+        //     mem.iter()
+        //         .chain(code.iter())
+        //         .copied()
+        //         .collect::<Vec<u16>>()
+        // } else {
+        //     code.iter()
+        //         .copied()
+        //         .collect::<Vec<u16>>()
+        // };
+        // let buffer_printer = CodePrinter(buffer.as_slice());
         let code_printer = CodePrinter(code.as_slice());
         let mem_printer = CodePrinter(mem.as_slice());
         info!("{:x}", code_printer);
@@ -154,7 +154,7 @@ fn main() -> eyre::Result<()> {
                 fs::write(&output, buffer).context("failed to write output file")?;
                 info!("Wrote compiled binary to \"{}\"", output.display());
             } else {
-                fs::write(&output, format!("{:x}\n{:x}", mem_printer, code_printer)).context("failed to write output file")?;
+                fs::write(&output, format!("[memory]\n{:x}\n[code]\n{:x}", mem_printer, code_printer)).context("failed to write output file")?;
                 info!("Wrote compiled hex to \"{}\"", output.display())
             }
         } else {
@@ -164,8 +164,14 @@ fn main() -> eyre::Result<()> {
                 std::io::stdout().write_all(arr)?;
                 println!();
             } else {
-                println!("[0000]: {:x}", mem_printer);
-                println!("[0040]: {:x}", code_printer);
+                if mem.len() > 0 {
+                    println!("[memory]\n{:x}", mem_printer);
+                    println!("[code]\n{:x}", code_printer);
+                } else if code.len() > 0 {
+                    println!("{:x}", code_printer);
+                } else {
+                    println!("");
+                }
             }
         }
     }
